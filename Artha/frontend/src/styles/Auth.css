@@ -143,3 +143,51 @@
     color: var(--color-text-muted);
     line-height: 1.4;
 }
+
+.role-choice-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+.role-choice {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    text-align: left;
+    padding: 1rem;
+    border: 1.5px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: white;
+    color: var(--color-text-main);
+    cursor: pointer;
+}
+
+.role-choice svg {
+    color: var(--color-primary);
+    flex-shrink: 0;
+}
+
+.role-choice strong,
+.role-choice small {
+    display: block;
+}
+
+.role-choice small {
+    color: var(--color-text-muted);
+    font-size: 0.78rem;
+    line-height: 1.25;
+    margin-top: 0.15rem;
+}
+
+.role-choice.active {
+    border-color: var(--color-primary);
+    background: rgba(15, 76, 92, 0.08);
+    box-shadow: 0 0 0 3px rgba(15, 76, 92, 0.1);
+}
+
+@media (max-width: 560px) {
+    .role-choice-grid {
+        grid-template-columns: 1fr;
+    }
+}

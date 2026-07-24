@@ -28,6 +28,7 @@ def register(payload: dict):
             middle_name=payload.get("middle_name") or payload.get("middleName"),
             last_name=payload.get("last_name") or payload.get("lastName"),
             dob=payload.get("dob"),
+            preferred_role=payload.get("preferred_role") or payload.get("preferredRole") or payload.get("accountType"),
         )
         return {"message": "OTP sent to phone"}
     except ValueError as e:
@@ -127,6 +128,7 @@ def me(current_user=Depends(get_current_user)):
         "phone": user.get("phone") or phone,
         "dob": user.get("dob"),
         "createdAt": user.get("created_at"),
+        "preferredRole": user.get("preferred_role") or user.get("preferredRole") or "borrower",
         "kycVerified": kyc_verified,
         "kycStatus": kyc_status,
         "creditScore": profile["credit_score"],

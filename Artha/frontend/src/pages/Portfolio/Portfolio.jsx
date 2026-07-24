@@ -47,6 +47,7 @@ const Portfolio = () => {
     let activeView = 'none';
     if (portfolioData?.active_loan) activeView = 'borrower';
     else if (portfolioData?.investment_stats?.total_invested > 0) activeView = 'lender';
+    const preferredRole = user.preferredRole || 'borrower';
 
     // Map Backend Data to UI
     const activeLoan = portfolioData?.active_loan ? {
@@ -109,7 +110,9 @@ const Portfolio = () => {
                     <h1 className="text-4xl font-extrabold tracking-tight">Financial Portfolio</h1>
                     <p className="text-muted text-lg mt-2">
                         {activeView === 'none'
-                            ? 'Begin your financial journey with Artha.'
+                            ? preferredRole === 'lender'
+                                ? 'Track lending opportunities and grow your investment portfolio.'
+                                : 'Track your borrowing journey and loan application progress.'
                             : `A comprehensive overview of your ${activeView} activities and growth.`}
                     </p>
                 </div>
@@ -128,31 +131,36 @@ const Portfolio = () => {
                     <div className="mb-8 p-6 rounded-full bg-blue-50 inline-block">
                         <TrendingUp size={64} className="text-primary mx-auto" />
                     </div>
-                    <h2 className="text-3xl font-bold mb-4">Choose Your Financial Path</h2>
+                    <h2 className="text-3xl font-bold mb-4">
+                        {preferredRole === 'lender' ? 'Lender Account Ready' : 'Borrower Account Ready'}
+                    </h2>
                     <p className="text-muted max-w-xl mx-auto mb-12 text-lg leading-relaxed">
-                        To maintain economic stability and community trust, Artha requires users to focus on one primary role.
-                        Whether you want to <strong>Lend & Earn</strong> or <strong>Borrow & grow</strong>, your journey starts here.
+                        {preferredRole === 'lender'
+                            ? 'Your account is set up for lending. Complete KYC, link your bank account, and fund verified borrower loans.'
+                            : 'Your account is set up for borrowing. Complete KYC, link your bank account, and request capital from verified lenders.'}
                     </p>
                     <div className="flex gap-8 justify-center flex-wrap">
-                        <div className="card p-10 hover-lift cursor-pointer rounded-2xl border-2 border-transparent hover:border-primary/20" style={{ width: '340px' }} onClick={() => navigate('/marketplace')}>
-                            <div className="flex justify-between items-start mb-6">
-                                <PieChart className="text-primary" size={40} />
-                                <span className="text-xs font-black text-primary uppercase tracking-widest">Lender</span>
+                        {preferredRole === 'lender' ? (
+                            <div className="card p-10 hover-lift cursor-pointer rounded-2xl border-2 border-transparent hover:border-primary/20" style={{ width: '340px' }} onClick={() => navigate('/marketplace')}>
+                                <div className="flex justify-between items-start mb-6">
+                                    <PieChart className="text-primary" size={40} />
+                                    <span className="text-xs font-black text-primary uppercase tracking-widest">Lender</span>
+                                </div>
+                                <h3 className="text-xl mb-3">Community Investor</h3>
+                                <p className="text-muted mb-8 leading-normal">Earn fixed returns by funding verified local borrowers after KYC approval.</p>
+                                <button className="btn btn-primary w-100">Explore Marketplace</button>
                             </div>
-                            <h3 className="text-xl mb-3">Community Investor</h3>
-                            <p className="text-muted mb-8 leading-normal">Earn a fixed 13% p.a. returns by funding local Nepali businesses and individuals.</p>
-                            <button className="btn btn-primary w-100">Explore Marketplace</button>
-                        </div>
-
-                        <div className="card p-10 hover-lift cursor-pointer rounded-2xl border-2 border-transparent hover:border-success/20" style={{ width: '340px' }} onClick={() => navigate('/request-loan')}>
-                            <div className="flex justify-between items-start mb-6">
-                                <Calendar className="text-success" size={40} />
-                                <span className="text-xs font-black text-success uppercase tracking-widest">Borrower</span>
+                        ) : (
+                            <div className="card p-10 hover-lift cursor-pointer rounded-2xl border-2 border-transparent hover:border-success/20" style={{ width: '340px' }} onClick={() => navigate('/request-loan')}>
+                                <div className="flex justify-between items-start mb-6">
+                                    <Calendar className="text-success" size={40} />
+                                    <span className="text-xs font-black text-success uppercase tracking-widest">Borrower</span>
+                                </div>
+                                <h3 className="text-xl mb-3">Capital Access</h3>
+                                <p className="text-muted mb-8 leading-normal">Get up to NPR 100,000 for your business startup or personal needs with local support.</p>
+                                <button className="btn btn-outline w-100">Apply for Loan</button>
                             </div>
-                            <h3 className="text-xl mb-3">Capital Access</h3>
-                            <p className="text-muted mb-8 leading-normal">Get up to NPR 100,000 for your business startup or personal needs with local support.</p>
-                            <button className="btn btn-outline w-100">Apply for Loan</button>
-                        </div>
+                        )}
                     </div>
                     <p className="mt-12 text-sm text-muted italic">"Artha brings the community together for financial prosperity."</p>
                 </div>

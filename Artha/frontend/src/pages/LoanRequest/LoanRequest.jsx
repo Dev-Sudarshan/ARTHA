@@ -28,8 +28,9 @@ const LoanRequest = () => {
             return;
         }
         // Rule 1: Role Exclusivity
-        if (user.activeRole === 'lender') {
-            alert("You have an active lending status. You cannot borrow until all your investments are closed.");
+        const userRole = user.activeRole && user.activeRole !== 'none' ? user.activeRole : user.preferredRole;
+        if (userRole === 'lender') {
+            alert("This account was created for lending. Please use a borrower account to request a loan.");
             navigate('/portfolio');
         }
     }, [user, navigate]);
