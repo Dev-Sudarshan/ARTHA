@@ -110,6 +110,44 @@ export const AuthProvider = ({ children }) => {
         bootstrap();
     }, []);
 
+    // Helper to map Backend User -> Frontend User Shape
+    const mapUser = (backendUser, token) => {
+        const firstName = backendUser.firstName || backendUser.first_name || '';
+        const middleName = backendUser.middleName || backendUser.middle_name || '';
+        const lastName = backendUser.lastName || backendUser.last_name || '';
+
+        const rawKyc = String(backendUser.kycStatus || '').toLowerCase();
+        const kycStatus = backendUser.kycStatus
+            ? rawKyc === 'approved'
+                ? 'verified'
+                : rawKyc  // preserves 'processing', 'pending_admin_review', 'rejected', etc.
+            : backendUser.kycVerified
+                ? 'verified'
+                : 'incomplete';
+
+        return {
+            ...backendUser,
+            id: backendUser.phone, // Use phone as ID for now
+            firstName,
+            middleName,
+            lastName,
+            name: `${firstName} ${lastName}`.trim(),
+            email: backendUser.email || '',
+            avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(firstName)}+${encodeURIComponent(lastName)}&background=0A2540&color=fff`,
+            kycStatus,
+            activeRole: backendUser.activeRole || 'none',
+            borrowingLimit: backendUser.borrowingLimit || 50000,
+            creditScore: backendUser.creditScore || null,
+            borrowerClass: backendUser.borrowerClass || null,
+            requestLimitCap: backendUser.requestLimitCap ?? backendUser.borrowingLimit ?? 0,
+            interestRateFloor: backendUser.interestRateFloor || null,
+            formPermissions: backendUser.formPermissions || null,
+            totalLended: backendUser.totalLended || 0,
+            totalBorrowed: backendUser.totalBorrowed || 0,
+            token: token // Important: Store token for API interceptor
+        };
+    };
+
     const refreshUser = async () => {
         if (!user?.token) return null;
         const me = await authService.me(user.token);

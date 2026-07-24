@@ -308,6 +308,41 @@ def _run_verification_background(user_id: str):
         print(f"[KYC BG] STEP 1.5 (PEP/CFT) took {_time.time() - _t15:.1f}s")
 
         # ============================================================
+        # STEP 1.6: CIB REGULATORY CREDIT SCREENING
+        # ============================================================
+        _t16 = _time.time()
+        print("[KYC BG] === STEP 1.6: Running CIB Regulatory Credit Screening ===")
+
+        cib_result = {
+            "decision": "PASSED_CIB_GATEWAY",
+            "risk_tier": "NEW_TO_CREDIT",
+            "reason": "Thin-file applicant.",
+            "deductible_liability": 0.0,
+            "eligible": True,
+            "status": "ELIGIBLE",
+        }
+
+        try:
+            from services.cib_service import run_cib_regulatory_screening
+
+            if screening_id:
+                cib_result = run_cib_regulatory_screening(screening_id)
+                print(
+                    f"[KYC BG] CIB screening result: decision='{cib_result.get('decision')}', "
+                    f"risk_tier='{cib_result.get('risk_tier')}', eligible={cib_result.get('eligible')}"
+                )
+
+            # Save CIB screening result to DB immediately
+            kyc_data["cib_screening"] = cib_result
+            put_item("kyc", user_id, kyc_data)
+
+        except Exception as cib_err:
+            print(f"[KYC BG] CIB screening failed (non-blocking): {cib_err}")
+            cib_result["error"] = str(cib_err)
+
+        print(f"[KYC BG] STEP 1.6 (CIB) took {_time.time() - _t16:.1f}s")
+
+        # ============================================================
         # STEP 2: FACE MATCHING (selfie vs ID card)
         # ============================================================
         _t2 = _time.time()
@@ -370,8 +405,12 @@ def _run_verification_background(user_id: str):
         is_sanctioned = sanctions_result.get("is_sanctioned", False)
         aml_risk_level = sanctions_result.get("risk_level", "LOW")
 
-        # If sanctioned → auto-reject; if PEP → flag for admin review
-        if is_sanctioned:
+        # CIB Credit screening flags
+        cib_eligible = cib_result.get("eligible", True)
+        cib_decision = cib_result.get("decision", "PASSED_CIB_GATEWAY")
+
+        # If sanctioned or CIB hard-rejected → auto-reject; if PEP → flag for admin review
+        if is_sanctioned or cib_decision == "HARD_REJECT" or not cib_eligible:
             ai_suggested_status = "REJECTED"
         elif is_pep:
             ai_suggested_status = "NEEDS_REVIEW"
@@ -389,6 +428,8 @@ def _run_verification_background(user_id: str):
             reasons.append("SANCTIONED/CFT: Person found on international sanctions or terrorism financing list")
         if is_pep:
             reasons.append("PEP: Person identified as Politically Exposed Person — requires enhanced due diligence")
+        if cib_decision == "HARD_REJECT" or not cib_eligible:
+            reasons.append(f"CIB BLACKLIST / DELINQUENCY: {cib_result.get('reason')}")
 
         final_kyc_result = {
             **ai_results,
@@ -407,9 +448,15 @@ def _run_verification_background(user_id: str):
             "pep_matches": sanctions_result.get("pep_matches", []),
             "sanctions_matches": sanctions_result.get("sanctions_matches", []),
             "screening_error": sanctions_result.get("error"),
+            # CIB Screening results
+            "cib_eligible": cib_eligible,
+            "cib_decision": cib_decision,
+            "cib_risk_tier": cib_result.get("risk_tier"),
+            "cib_deductible_liability": cib_result.get("deductible_liability", 0.0),
+            "cib_reason": cib_result.get("reason"),
         }
 
-        print(f"[KYC BG] Final result: OCR={ocr_ok}, Face={face_ok}, Liveness={live_ok}, PEP={is_pep}, Sanctioned={is_sanctioned}")
+        print(f"[KYC BG] Final result: OCR={ocr_ok}, Face={face_ok}, Liveness={live_ok}, PEP={is_pep}, Sanctioned={is_sanctioned}, CIB Eligible={cib_eligible}")
         print(f"[KYC BG] AML Risk Level: {aml_risk_level}")
         print(f"[KYC BG] AI suggested status: {ai_suggested_status}")
 

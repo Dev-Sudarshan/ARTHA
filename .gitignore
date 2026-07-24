@@ -19,6 +19,22 @@ static/uploads
 output_citizenship3/
 models/citizenship2.jpeg
 
+# Image files
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.webp
+*.tif
+*.tiff
+*.ico
+*.svg
+*.avif
+*.heic
+*.heif
+*.psd
+
 # Node.js / Frontend
 node_modules/
 .vite/
@@ -40,6 +56,10 @@ yarn-error.log*
 .env
 .env.local
 
+# Local analysis cache
+moduleanalysiscache
+moduleanalysiscache/
+
 # Test files
 test_*.py
 *_test.py
@@ -50,4 +70,5 @@ BLOCKCHAIN_FLOW_REAL.py
 # Package locks (optional, but helps prevent conflicts)
 package-lock.json
 
+backend/static/uploads/
 
