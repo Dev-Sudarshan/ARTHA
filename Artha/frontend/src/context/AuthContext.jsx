@@ -100,6 +100,10 @@ export const AuthProvider = ({ children }) => {
             activeRole: backendUser.activeRole || 'none',
             borrowingLimit: backendUser.borrowingLimit || 50000,
             creditScore: backendUser.creditScore || null,
+            borrowerClass: backendUser.borrowerClass || null,
+            requestLimitCap: backendUser.requestLimitCap ?? backendUser.borrowingLimit ?? 0,
+            interestRateFloor: backendUser.interestRateFloor || null,
+            formPermissions: backendUser.formPermissions || null,
             totalLended: backendUser.totalLended || 0,
             totalBorrowed: backendUser.totalBorrowed || 0,
             token: token // Important: Store token for API interceptor

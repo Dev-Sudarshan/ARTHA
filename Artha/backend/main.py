@@ -24,6 +24,11 @@ from routers.audit_routes import router as audit_router
 from routers import upload_routes
 from routers.dev_verify_routes import router as dev_verify_router
 from admin.admin_routes import router as admin_router
+from routers.borrower_router import router as borrower_router
+from routers.cib_routes import router as cib_router
+from routers.nchl_routes import router as nchl_router
+from routers.credit_score_routes import router as credit_score_router
+
 
 app = FastAPI(
     title="Artha P2P Lending Backend",
@@ -72,6 +77,10 @@ app.include_router(audit_router)
 app.include_router(upload_routes.router)
 app.include_router(dev_verify_router)
 app.include_router(admin_router, prefix="/api", tags=["Admin Panel"])
+app.include_router(borrower_router)
+app.include_router(cib_router)
+app.include_router(nchl_router)
+app.include_router(credit_score_router)
 
 # Serve uploads
 static_path = os.path.join(os.path.dirname(__file__), "static")

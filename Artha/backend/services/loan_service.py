@@ -6,6 +6,9 @@ from schemas.lender_schemas import LenderAcceptanceSchema
 
 from utils.emi_calculator import calculate_emi
 from services.pdf_service import generate_loan_agreement_pdf
+from services.cib_service import run_cib_regulatory_screening
+from services.nchl_service import process_nchl_statement_analysis
+from services.credit_score_service import calculate_credit_score
 
 from db.database import get_item, put_item, get_all_items
 import uuid
@@ -123,23 +126,36 @@ def create_borrow_request(payload: BorrowRequestSchema):
         else:
             raise Exception(f"KYC not verified. Current status: {kyc_status}. Admin must approve your KYC first.")
 
+    # Borrower-only underwriting sequence: CIB must be completely clean before
+    # statement metrics are requested from NCHL. Lender flows never call this service.
+    borrower_cit_no = kyc_data.get("id_documents", {}).get("id_details", {}).get("id_number", "").strip()
+    cib_result = run_cib_regulatory_screening(borrower_cit_no)
+    if not cib_result["eligible"]:
+        raise Exception("Not Eligible to Borrow")
+
+    bank_details = kyc_data.get("bank_details", {})
+    account_number = str(
+        bank_details.get("account_number")
+        or bank_details.get("account_no")
+        or user_id
+    )
+    nchl_result = process_nchl_statement_analysis(account_number)
+    scorecard_result = calculate_credit_score(nchl_result["metrics"], payload.tenure_months)
+    if scorecard_result["verdict"] != "APPROVED":
+        raise Exception("Not Eligible to Borrow")
+    if payload.amount > scorecard_result["max_eligible_limit"]:
+        raise Exception(
+            f"Requested amount exceeds the affordable limit of NPR {scorecard_result['max_eligible_limit']:,}."
+        )
+    payload.interest_rate = float(scorecard_result["interest_rate"].rstrip("%"))
+
     # 2️⃣ Agreement acceptance
     if not payload.agreed_to_rules:
         raise Exception("Rules must be accepted")
 
     # 3️⃣ Credit score enforcement
-    credit_score = get_item("credit_scores", user_id)
-    if credit_score is None:
-        print(f"WARNING: Credit score missing for {user_id}, mocking to 750 for DEMO")
-        credit_score = 750 # DEMO HACK: Default high score
-        # raise Exception("Credit score not available")
-
-    # DEMO HACK: Bypass actual limit check
-    # max_allowed = get_credit_limit(user_id)
-    # if max_allowed == 0:
-    #     raise Exception("Borrowing blocked due to low credit score")
-    # if payload.amount > max_allowed:
-    #     raise Exception("Requested amount exceeds credit limit")
+    credit_score = scorecard_result["credit_score"]
+    put_item("credit_scores", user_id, credit_score)
 
     # 4️⃣ Guarantor rule - REQUIRED for amounts > 30k
     if payload.amount > GUARANTOR_REQUIRED_AMOUNT:
@@ -175,7 +191,7 @@ def create_borrow_request(payload: BorrowRequestSchema):
     # 8️⃣ Get Borrower Details from KYC for PDF
     basic_info = kyc_data.get("basic_info", {})
     borrower_name = " ".join(filter(None, [basic_info.get("first_name"), basic_info.get("middle_name"), basic_info.get("last_name")]))
-    borrower_cit_no = kyc_data.get("id_documents", {}).get("id_details", {}).get("id_number", "N/A")
+    borrower_cit_no = borrower_cit_no or "N/A"
 
     # 9️⃣ Generate unsigned agreement PDF
     pdf_ref = generate_loan_agreement_pdf(
@@ -219,6 +235,9 @@ def create_borrow_request(payload: BorrowRequestSchema):
         "ai_suggestion": None,
         "kyc_selfie_ref": kyc_data.get("declaration", {}).get("declaration_video", {}).get("selfie_image_ref"),
         "credit_score": credit_score,
+        "cib_screening": cib_result,
+        "nchl_statement_metrics": nchl_result["metrics"],
+        "underwriting_scorecard": scorecard_result,
         "status": loan_status,
         "created_at": payload.submitted_at, # This is int from frontend
     }
@@ -238,6 +257,7 @@ def create_borrow_request(payload: BorrowRequestSchema):
         "emi": emi,
         "total_payable": total_payable,
         "credit_score": credit_score,
+        "underwriting": scorecard_result,
     }
 
 

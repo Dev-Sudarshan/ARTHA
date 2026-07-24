@@ -60,7 +60,19 @@ def _get_pool():
 
 def get_connection():
     """Get a connection from the pool (much faster than opening a new one each time)."""
-    conn = _get_pool().getconn()
+    global _connection_pool
+    try:
+        conn = _get_pool().getconn()
+    except Exception:
+        # Pool might have stale dead connections, close pool and recreate
+        if _connection_pool:
+            try:
+                _connection_pool.closeall()
+            except Exception:
+                pass
+            _connection_pool = None
+        conn = _get_pool().getconn()
+
     # Test that the connection is still alive (Render free DBs drop idle connections)
     try:
         conn.cursor().execute("SELECT 1")

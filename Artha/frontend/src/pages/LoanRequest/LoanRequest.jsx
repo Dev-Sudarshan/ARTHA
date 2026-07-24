@@ -20,7 +20,9 @@ const LoanRequest = () => {
     // Limits
     const BORROW_LIMIT_NO_BANK = 50000;
     const BORROW_LIMIT_WITH_BANK = 100000;
-    const maxAmount = user?.bankDetailsAdded ? BORROW_LIMIT_WITH_BANK : BORROW_LIMIT_NO_BANK;
+    const maxAmount = user?.formPermissions?.max_allowed_input_value
+        ?? (user?.bankDetailsAdded ? BORROW_LIMIT_WITH_BANK : BORROW_LIMIT_NO_BANK);
+    const canCreateRequest = user?.formPermissions?.can_create_request !== false;
 
     useEffect(() => {
         if (!user) {
@@ -82,6 +84,10 @@ const LoanRequest = () => {
 
     const handleNext = async (e) => {
         e.preventDefault();
+        if (!canCreateRequest) {
+            alert('Not Eligible to Borrow');
+            return;
+        }
         if (parseFloat(formData.amount) > maxAmount) {
             alert(`Your current borrowing limit is NPR ${maxAmount.toLocaleString()}. ${!user.bankDetailsAdded ? 'Add bank details to increase limit to 1 Lakh.' : ''}`);
             return;
@@ -112,7 +118,8 @@ const LoanRequest = () => {
             setAgreementPdf(result.agreement_pdf);
             setStep(2);
         } catch (error) {
-            alert("Failed to create loan draft: " + (error.response?.data?.detail || error.message));
+            const detail = error.response?.data?.detail || error.message;
+            alert(detail === 'Not Eligible to Borrow' ? detail : "Failed to create loan draft: " + detail);
         } finally {
             setLoading(false);
         }
@@ -151,7 +158,8 @@ const LoanRequest = () => {
 
             navigate('/', { state: { loanSubmitted: true } });
         } catch (error) {
-            alert("Verification failed: " + (error.response?.data?.detail || error.message));
+            const detail = error.response?.data?.detail || error.message;
+            alert(detail === 'Not Eligible to Borrow' ? detail : "Verification failed: " + detail);
         } finally {
             setLoading(false);
         }
@@ -186,6 +194,11 @@ const LoanRequest = () => {
 
                     {step === 1 ? (
                         <form onSubmit={handleNext} className="animate-fade">
+                            {!canCreateRequest && (
+                                <div className="alert p-6 rounded-2xl bg-red-50 border-2 border-red-200 mb-8 text-red-800 font-bold">
+                                    Not Eligible to Borrow
+                                </div>
+                            )}
                             <div className="grid grid-2 gap-8 mb-10">
                                 <div className="form-group">
                                     <label className="text-sm font-black text-slate-700 uppercase tracking-wider mb-3 block">Requested Amount (NPR)</label>
@@ -198,6 +211,8 @@ const LoanRequest = () => {
                                         placeholder="e.g. 50000"
                                         required
                                         min="1000"
+                                        max={maxAmount}
+                                        disabled={!canCreateRequest}
                                     />
                                     <div className="flex justify-between mt-2">
                                         <p className="text-xs font-bold text-primary">Target: 13% Fixed Interest Rate</p>
@@ -329,7 +344,7 @@ const LoanRequest = () => {
                                 </div>
                             </div>
 
-                            <button type="submit" className="btn btn-primary w-100 py-5 text-lg shadow-xl shadow-blue-500/20" disabled={loading}>
+                            <button type="submit" className="btn btn-primary w-100 py-5 text-lg shadow-xl shadow-blue-500/20" disabled={loading || !canCreateRequest}>
                                 {loading ? 'Processing...' : <><span>Continue to Verification</span> <ArrowRight size={20} /></>}
                             </button>
                         </form>

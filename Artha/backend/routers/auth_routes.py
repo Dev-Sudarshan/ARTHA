@@ -11,8 +11,34 @@ from auth.auth_service import (
 from auth.auth_dependency import get_current_user
 from db.database import get_item, get_all_items, get_user_loan_summary, get_user_profile_data
 from services.loan_service import get_credit_limit
+from services.cib_service import run_cib_regulatory_screening
+from services.nchl_service import process_nchl_statement_analysis
+from services.credit_score_service import calculate_credit_score, classify_borrower
+from db.database import put_item
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def _get_borrower_underwriting(phone: str, kyc_data: dict, active_role: str) -> dict | None:
+    """Build borrower form permissions from the same pipeline used at submission."""
+    if active_role == "lender" or kyc_data.get("status") not in {"APPROVED", "VERIFIED"}:
+        return None
+
+    citizenship_number = str(
+        kyc_data.get("id_documents", {}).get("id_details", {}).get("id_number", "")
+    ).strip()
+    cib_result = run_cib_regulatory_screening(citizenship_number)
+    if not cib_result["eligible"]:
+        classification = classify_borrower(0)
+        return {"credit_score": 0, "verdict": "DECLINED", **classification}
+
+    bank_details = kyc_data.get("bank_details", {})
+    account_number = str(bank_details.get("account_number") or bank_details.get("account_no") or phone)
+    nchl_result = process_nchl_statement_analysis(account_number)
+    scorecard = calculate_credit_score(nchl_result["metrics"])
+    put_item("credit_scores", phone, scorecard["credit_score"])
+    put_item("underwriting_profiles", phone, scorecard)
+    return scorecard
 
 
 @router.post("/register")
@@ -112,13 +138,8 @@ def me(current_user=Depends(get_current_user)):
     kyc_status = kyc_data.get("status") or "INCOMPLETE"
     kyc_verified = kyc_status == "APPROVED"
 
-    # Calculate borrowing limit based on credit score
-    borrowing_limit = 0
-    if profile["credit_score"] is not None:
-        try:
-            borrowing_limit = get_credit_limit(phone)
-        except:
-            borrowing_limit = 50000  # Default fallback
+    underwriting = _get_borrower_underwriting(phone, kyc_data, profile["active_role"])
+    borrowing_limit = underwriting["request_limit_cap"] if underwriting else 0
 
     return {
         "firstName": user.get("first_name") or user.get("firstName") or "",
@@ -129,9 +150,13 @@ def me(current_user=Depends(get_current_user)):
         "createdAt": user.get("created_at"),
         "kycVerified": kyc_verified,
         "kycStatus": kyc_status,
-        "creditScore": profile["credit_score"],
+        "creditScore": underwriting["credit_score"] if underwriting else profile["credit_score"],
         "activeRole": profile["active_role"],
         "totalLended": profile["total_lended"],
         "totalBorrowed": profile["total_borrowed"],
         "borrowingLimit": borrowing_limit,
+        "borrowerClass": underwriting["borrower_class"] if underwriting else None,
+        "requestLimitCap": borrowing_limit,
+        "interestRateFloor": underwriting["interest_rate_floor"] if underwriting else None,
+        "formPermissions": underwriting["form_permissions"] if underwriting else None,
     }
