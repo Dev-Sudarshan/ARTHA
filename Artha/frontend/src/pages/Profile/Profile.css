@@ -1,0 +1,208 @@
+/* ── Profile Page ─────────────────────────────── */
+
+.profile-page {
+    max-width: 680px;
+    margin: 3rem auto;
+    padding: 0 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.profile-loading {
+    text-align: center;
+    padding: 6rem 1rem;
+    color: var(--color-text-muted, #888);
+}
+.profile-loading svg {
+    margin: 0 auto 1rem;
+}
+
+/* ── Card base ───────────────────────────────── */
+
+.profile-card {
+    background: #fff;
+    border: 1px solid var(--color-border, #e5e7eb);
+    border-radius: 12px;
+    padding: 1.5rem;
+}
+
+/* ── Header card ─────────────────────────────── */
+
+.profile-header-card {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.profile-avatar-wrap {
+    flex-shrink: 0;
+}
+
+.profile-initials {
+    width: 56px;
+    height: 56px;
+    border-radius: 12px;
+    background: var(--color-primary, #2563eb);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+    font-weight: 700;
+}
+
+.profile-identity {
+    flex: 1;
+    min-width: 0;
+}
+
+.profile-identity h1 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin: 0 0 0.25rem;
+    color: var(--color-text-main, #111);
+}
+
+.kyc-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 2px 10px;
+    border-radius: 999px;
+}
+.kyc-success { background: #dcfce7; color: #15803d; }
+.kyc-warning { background: #fef9c3; color: #a16207; }
+.kyc-error   { background: #fee2e2; color: #b91c1c; }
+
+.profile-header-action {
+    flex-shrink: 0;
+}
+
+.btn-profile-outline,
+.btn-profile-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    text-decoration: none;
+}
+
+.btn-profile-outline {
+    background: transparent;
+    border: 1px solid var(--color-border, #d1d5db);
+    color: var(--color-text-muted, #6b7280);
+}
+.btn-profile-outline:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.btn-profile-primary {
+    background: var(--color-primary, #2563eb);
+    color: #fff;
+}
+
+/* ── Stats row ───────────────────────────────── */
+
+.profile-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.75rem;
+}
+
+.stat-item {
+    background: #fff;
+    border: 1px solid var(--color-border, #e5e7eb);
+    border-radius: 10px;
+    padding: 1rem;
+    text-align: center;
+}
+
+.stat-label {
+    display: block;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--color-text-muted, #6b7280);
+    margin-bottom: 0.25rem;
+}
+
+.stat-value {
+    display: block;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--color-text-main, #111);
+}
+
+/* ── Info section ────────────────────────────── */
+
+.section-title {
+    font-size: 1rem;
+    font-weight: 700;
+    margin: 0 0 1rem;
+    color: var(--color-text-main, #111);
+}
+
+.info-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.info-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    border-radius: 8px;
+    background: var(--color-bg-subtle, #f9fafb);
+}
+
+.info-icon {
+    color: var(--color-primary, #2563eb);
+    flex-shrink: 0;
+}
+
+.info-label {
+    display: block;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--color-text-muted, #6b7280);
+}
+
+.info-value {
+    display: block;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--color-text-main, #111);
+}
+
+/* ── Responsive ──────────────────────────────── */
+
+@media (max-width: 640px) {
+    .profile-page { margin: 1.5rem auto; }
+
+    .profile-stats {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .profile-header-card {
+        flex-direction: column;
+        text-align: center;
+    }
+    .profile-header-action { width: 100%; }
+    .btn-profile-outline,
+    .btn-profile-primary { width: 100%; justify-content: center; }
+}
