@@ -5,6 +5,7 @@ import { setCachedToken } from '../services/api';
 const AuthContext = createContext({
     user: null,
     loading: true,
+    bankLinked: false,
     login: async () => {
         throw new Error('AuthProvider is not mounted (login)');
     },
@@ -17,14 +18,51 @@ const AuthContext = createContext({
     logout: () => {},
     updateKycStatus: () => {},
     setUserRole: () => {},
+    devSwitchRole: () => {},
+    markBankLinked: () => {},
     refreshUser: async () => null,
 });
 
 export const useAuth = () => useContext(AuthContext);
 
+const mapUser = (backendUser, token) => {
+    const firstName = backendUser.firstName || backendUser.first_name || '';
+    const middleName = backendUser.middleName || backendUser.middle_name || '';
+    const lastName = backendUser.lastName || backendUser.last_name || '';
+
+    const rawKyc = String(backendUser.kycStatus || '').toLowerCase();
+    const kycStatus = backendUser.kycStatus
+        ? rawKyc === 'approved'
+            ? 'verified'
+            : rawKyc
+        : backendUser.kycVerified
+            ? 'verified'
+            : 'incomplete';
+
+    return {
+        ...backendUser,
+        id: backendUser.phone,
+        firstName,
+        middleName,
+        lastName,
+        name: `${firstName} ${lastName}`.trim(),
+        email: backendUser.email || '',
+        avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(firstName)}+${encodeURIComponent(lastName)}&background=0A2540&color=fff`,
+        kycStatus,
+        activeRole: backendUser.activeRole || 'none',
+        preferredRole: backendUser.preferredRole || backendUser.preferred_role || backendUser.accountType || 'borrower',
+        borrowingLimit: backendUser.borrowingLimit || 50000,
+        creditScore: backendUser.creditScore || null,
+        totalLended: backendUser.totalLended || 0,
+        totalBorrowed: backendUser.totalBorrowed || 0,
+        token,
+    };
+};
+
 export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [bankLinked, setBankLinked] = useState(() => localStorage.getItem('artha_bank_linked') === 'true');
 
     useEffect(() => {
         // Load user from local storage INSTANTLY, then refresh from backend in background
@@ -163,7 +201,7 @@ export const AuthProvider = ({ children }) => {
         // specific logout logic
         try {
             if (user?.token) authService.logout(user.token);
-        } catch (e) { /* ignore */ }
+        } catch { /* ignore */ }
         setCachedToken(null);
         setUser(null);
         localStorage.removeItem('artha_user');
@@ -186,15 +224,54 @@ export const AuthProvider = ({ children }) => {
         }
     }
 
+    // TEMP DEV: local-only role switcher for testing borrower/lender UI.
+    const devSwitchRole = (role) => {
+        const nextRole = role === 'lender' ? 'lender' : 'borrower';
+        const baseUser = user || {
+            id: 'dev-user',
+            firstName: 'Demo',
+            middleName: '',
+            lastName: 'Tester',
+            name: 'Demo Tester',
+            phone: '9800000000',
+            email: '',
+            dob: '2000-01-01',
+            avatar: 'https://ui-avatars.com/api/?name=Demo+Tester&background=0A2540&color=fff',
+            token: 'dev-local-token',
+            borrowingLimit: 100000,
+            creditScore: 742,
+            totalLended: 0,
+            totalBorrowed: 0,
+        };
+        const updatedUser = {
+            ...baseUser,
+            activeRole: 'none',
+            preferredRole: nextRole,
+            kycStatus: 'verified',
+            kycVerified: true,
+        };
+        setCachedToken(updatedUser.token);
+        setUser(updatedUser);
+        localStorage.setItem('artha_user', JSON.stringify(updatedUser));
+    }
+
+    const markBankLinked = () => {
+        setBankLinked(true);
+        localStorage.setItem('artha_bank_linked', 'true');
+    }
+
     const value = {
         user,
         loading,
+        bankLinked,
         login,
         register,
         verifyOtp,
         logout,
         updateKycStatus,
         setUserRole,
+        devSwitchRole,
+        markBankLinked,
         refreshUser,
     };
 

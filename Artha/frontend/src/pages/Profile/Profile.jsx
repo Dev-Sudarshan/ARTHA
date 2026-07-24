@@ -1,6 +1,6 @@
 import { useAuth } from '../../context/AuthContext';
 import { Link } from 'react-router-dom';
-import { User, Phone, Mail, MapPin, BadgeCheck, AlertCircle, Calendar, Shield } from 'lucide-react';
+import { User, Phone, Mail, MapPin, BadgeCheck, AlertCircle, Calendar, Shield, Building2 } from 'lucide-react';
 import './Profile.css';
 
 const Profile = () => {
@@ -75,6 +75,16 @@ const Profile = () => {
                     <span className="stat-label">Borrowing Limit</span>
                     <span className="stat-value">Rs. {(user.borrowingLimit || 50000).toLocaleString()}</span>
                 </div>
+            </div>
+
+            <div className="profile-card bank-link-card">
+                <div>
+                    <h2 className="section-title">Bank Account</h2>
+                    <p>Link online banking to show balance and use this account for demo loan disbursement or lending deduction.</p>
+                </div>
+                <Link to="/bank-connection-demo" className="btn-profile-primary">
+                    <Building2 size={16} /> Link Bank Account
+                </Link>
             </div>
 
             {/* Info section */}

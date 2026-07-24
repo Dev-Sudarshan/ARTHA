@@ -4,13 +4,22 @@ from auth.otp_service import send_otp, verify_otp
 
 from db.database import get_item, put_item, delete_item
 
+VALID_PREFERRED_ROLES = {"borrower", "lender"}
+
+
+def normalize_preferred_role(preferred_role: str | None) -> str:
+    role = (preferred_role or "borrower").strip().lower()
+    return role if role in VALID_PREFERRED_ROLES else "borrower"
+
+
 def register_user(
     phone: str,
     password: str,
     first_name: str,
     middle_name: str | None,
     last_name: str,
-    dob: str
+    dob: str,
+    preferred_role: str | None = None
 ) -> None:
     """
     Create a new user and send OTP
@@ -20,22 +29,19 @@ def register_user(
         raise ValueError("User already exists and is verified. Please login.")
 
     password_hash = hash_password(password)
-    print(f"[REGISTER DEBUG] Phone: {phone}")
-    print(f"[REGISTER DEBUG] Password: {password}")
-    print(f"[REGISTER DEBUG] Password hash: {password_hash[:50]}...")
-    
+
     new_user = {
         "first_name": first_name,
         "middle_name": middle_name,
         "last_name": last_name,
         "dob": dob,
         "phone": phone,
+        "preferred_role": normalize_preferred_role(preferred_role),
         "password_hash": password_hash,
         "is_verified": False,
         "created_at": datetime.utcnow().isoformat(),
     }
     put_item("users", phone, new_user)
-    print(f"[REGISTER DEBUG] User stored successfully")
 
     send_otp(phone)
 
@@ -70,16 +76,11 @@ def login_user(phone: str, password: str, otp: str = None) -> dict:
     Login existing user with optional OTP
     """
     user = get_item("users", phone)
-    print(f"[LOGIN DEBUG] Phone: {phone}")
-    print(f"[LOGIN DEBUG] User found: {user is not None}")
     if not user:
         raise ValueError("User not found")
 
-    print(f"[LOGIN DEBUG] Stored hash: {user.get('password_hash', 'MISSING')[:50]}...")
-    print(f"[LOGIN DEBUG] Password provided: {password}")
     password_match = verify_password(password, user["password_hash"])
-    print(f"[LOGIN DEBUG] Password match: {password_match}")
-    
+
     if not password_match:
         raise ValueError("Invalid credentials")
 
@@ -109,6 +110,7 @@ def login_user(phone: str, password: str, otp: str = None) -> dict:
              "lastName": user["last_name"],
              "phone": user["phone"],
              "dob": user["dob"],
+             "preferredRole": user.get("preferred_role") or user.get("preferredRole") or "borrower",
              "kycVerified": kyc_verified
         }
     }

@@ -111,6 +111,19 @@
     color: #fff;
 }
 
+.bank-link-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.bank-link-card p {
+    color: var(--color-text-muted, #6b7280);
+    font-size: 0.9rem;
+    margin: -0.45rem 0 0;
+}
+
 /* ── Stats row ───────────────────────────────── */
 
 .profile-stats {
@@ -199,6 +212,10 @@
     }
 
     .profile-header-card {
+        flex-direction: column;
+        text-align: center;
+    }
+    .bank-link-card {
         flex-direction: column;
         text-align: center;
     }

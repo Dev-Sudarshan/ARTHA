@@ -1,10 +1,13 @@
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { ArrowRight, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Building2, ShieldCheck } from 'lucide-react';
 import './Hero.css';
 
 const Hero = () => {
-    const { user } = useAuth();
+    const { user, bankLinked } = useAuth();
+    const currentRole = user?.preferredRole === 'lender' ? 'lender' : 'borrower';
+    const roleActionPath = currentRole === 'lender' ? '/marketplace' : '/request-loan';
+    const roleActionLabel = currentRole === 'lender' ? 'Start Lending' : 'Start Borrowing';
 
     return (
         <section className="hero">
@@ -30,9 +33,13 @@ const Hero = () => {
                             </>
                         ) : (
                             <>
-                                {user.kycStatus === 'verified' ? (
-                                    <Link to="/marketplace" className="btn btn-primary">
-                                        Explore Loans <ArrowRight size={20} />
+                                {user.kycStatus === 'verified' && !bankLinked ? (
+                                    <Link to="/bank-connection-demo" className="btn btn-primary">
+                                        <Building2 size={20} /> Link Bank Account
+                                    </Link>
+                                ) : user.kycStatus === 'verified' ? (
+                                    <Link to={roleActionPath} className="btn btn-primary">
+                                        {roleActionLabel} <ArrowRight size={20} />
                                     </Link>
                                 ) : user.kycStatus === 'pending_admin_review' || user.kycStatus === 'processing' ? (
                                     <Link to="/profile" className="btn btn-outline">
@@ -40,13 +47,20 @@ const Hero = () => {
                                     </Link>
                                 ) : (
                                     <Link to="/kyc" className="btn btn-primary">
-                                        Verify to Invest <ArrowRight size={20} />
+                                        Complete KYC <ArrowRight size={20} />
                                     </Link>
                                 )}
                                 <Link to="/portfolio" className="btn btn-outline">My Dashboard</Link>
                             </>
                         )}
                     </div>
+
+                    {user?.kycStatus === 'verified' && !bankLinked && (
+                        <div className="hero-bank-notice">
+                            <Building2 size={18} />
+                            <span>Link a demo bank account to unlock {currentRole === 'lender' ? 'lending' : 'borrowing'} flows.</span>
+                        </div>
+                    )}
                 </div>
 
                 <div className="hero-image mobile-hide">

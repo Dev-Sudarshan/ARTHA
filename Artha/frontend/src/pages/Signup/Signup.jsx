@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { Phone, Lock, User, Calendar, ArrowRight, Key } from 'lucide-react';
+import { Phone, Lock, Calendar, ArrowRight, Key, HandCoins, Landmark } from 'lucide-react';
 import logo from '../../assets/artha-logo.jpg';
 import '../../styles/Auth.css';
 
@@ -13,7 +13,8 @@ const Signup = () => {
         dob: '',
         phone: '',
         password: '',
-        confirmPassword: ''
+        confirmPassword: '',
+        preferredRole: 'borrower'
     });
 
     const [otp, setOtp] = useState('');
@@ -36,8 +37,8 @@ const Signup = () => {
             setLoading(true);
             try {
                 await verifyOtp(formData.phone, otp);
-                alert("Account verified successfully! Please login.");
-                navigate('/login');
+                alert("Account verified successfully! Please complete KYC.");
+                navigate('/kyc');
             } catch (error) {
                 console.error(error);
                 alert(error.response?.data?.detail || "Invalid OTP");
@@ -94,6 +95,34 @@ const Signup = () => {
                                     <div className="input-wrapper no-icon">
                                         <input type="text" name="lastName" value={formData.lastName} onChange={handleChange} required />
                                     </div>
+                                </div>
+                            </div>
+
+                            <div className="form-group">
+                                <label>Choose Account Type</label>
+                                <div className="role-choice-grid">
+                                    <button
+                                        type="button"
+                                        className={`role-choice ${formData.preferredRole === 'borrower' ? 'active' : ''}`}
+                                        onClick={() => setFormData({ ...formData, preferredRole: 'borrower' })}
+                                    >
+                                        <HandCoins size={22} />
+                                        <span>
+                                            <strong>Borrower</strong>
+                                            <small>Apply for loans after KYC</small>
+                                        </span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className={`role-choice ${formData.preferredRole === 'lender' ? 'active' : ''}`}
+                                        onClick={() => setFormData({ ...formData, preferredRole: 'lender' })}
+                                    >
+                                        <Landmark size={22} />
+                                        <span>
+                                            <strong>Lender</strong>
+                                            <small>Fund loans after KYC</small>
+                                        </span>
+                                    </button>
                                 </div>
                             </div>
 

@@ -6,9 +6,18 @@ import logo from '../../assets/artha-logo.jpg';
 import './Navbar.css';
 
 const Navbar = () => {
-    const { user, logout } = useAuth();
+    const { user, logout, devSwitchRole, bankLinked } = useAuth();
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const navigate = useNavigate();
+    const currentRole = user?.preferredRole === 'lender' ? 'lender' : 'borrower';
+    const roleActionLabel = currentRole === 'lender' ? 'Lend' : 'Borrow';
+    const roleActionPath = !user
+        ? '/login'
+        : !bankLinked
+            ? '/bank-connection-demo'
+            : currentRole === 'lender'
+                ? '/marketplace'
+                : '/request-loan';
 
     const handleLogout = () => {
         logout();
@@ -32,8 +41,8 @@ const Navbar = () => {
                         <NavLink to="/" className={({ isActive }) => (isActive ? 'active' : '')} onClick={() => setIsMenuOpen(false)}>
                             Home
                         </NavLink>
-                        <NavLink to="/marketplace" className={({ isActive }) => (isActive ? 'active' : '')} onClick={() => setIsMenuOpen(false)}>
-                            Marketplace
+                        <NavLink to={roleActionPath} className={({ isActive }) => (isActive ? 'active' : '')} onClick={() => setIsMenuOpen(false)}>
+                            {roleActionLabel}
                         </NavLink>
                         <NavLink to="/portfolio" className={({ isActive }) => (isActive ? 'active' : '')} onClick={() => setIsMenuOpen(false)}>
                             Portfolio
@@ -42,6 +51,29 @@ const Navbar = () => {
                     </div>
 
                     <div className="navbar-auth">
+                        <div className="dev-role-switcher" aria-label="Temporary role switcher">
+                            <span>DEV</span>
+                            <button
+                                type="button"
+                                className={currentRole === 'borrower' ? 'active' : ''}
+                                onClick={() => {
+                                    devSwitchRole('borrower');
+                                    setIsMenuOpen(false);
+                                }}
+                            >
+                                Borrower
+                            </button>
+                            <button
+                                type="button"
+                                className={currentRole === 'lender' ? 'active' : ''}
+                                onClick={() => {
+                                    devSwitchRole('lender');
+                                    setIsMenuOpen(false);
+                                }}
+                            >
+                                Lender
+                            </button>
+                        </div>
                         {user ? (
                             <div className="user-menu">
                                 <Link to="/profile" className="user-profile" onClick={() => setIsMenuOpen(false)}>
