@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { AlertCircle, Building2, CheckCircle2, CreditCard, LockKeyhole, Phone, RefreshCw, Search, ShieldCheck } from 'lucide-react';
+import { AlertCircle, Building2, CheckCircle2, CreditCard, KeyRound, LockKeyhole, Phone, RefreshCw, Search, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import './BankConnectionDemo.css';
 
@@ -53,29 +53,18 @@ const connectionStates = {
     }
 };
 
-const formatNpr = (amount) => `NPR ${amount.toLocaleString()}`;
-
-const buildLinkedAccount = (bank, mobileNumber) => ({
-    institution: bank.name,
-    accountType: 'Savings',
-    accountNumber: `XXXX-${mobileNumber.slice(-4) || '2048'}`,
-    availableBalance: bank.balance,
-    monthlyInflow: Math.round(bank.balance * 0.56),
-    borrowerDisbursement: 'Loan disbursement will be deposited to this linked account.',
-    lenderDebit: 'Lender funding will be deducted from this linked account.'
-});
-
 const BankConnectionDemo = () => {
-    const { markBankLinked } = useAuth();
+    const { user, markBankLinked, refreshUser } = useAuth();
     const [status, setStatus] = useState('idle');
     const [selectedBankId, setSelectedBankId] = useState(demoBanks[0].id);
     const [bankSearch, setBankSearch] = useState('');
-    const [credentials, setCredentials] = useState({ mobileNumber: '', password: '' });
+    const [credentials, setCredentials] = useState({ mobileNumber: '', password: '', otp: '' });
     const [linkedAccount, setLinkedAccount] = useState(null);
 
     const activeState = connectionStates[status];
     const StatusIcon = activeState.icon;
     const selectedBank = demoBanks.find((bank) => bank.id === selectedBankId) || demoBanks[0];
+    const isBorrower = (user?.preferredRole || 'borrower') !== 'lender';
 
     const filteredBanks = useMemo(() => {
         const query = bankSearch.trim().toLowerCase();
@@ -90,14 +79,26 @@ const BankConnectionDemo = () => {
         setCredentials({ ...credentials, [event.target.name]: event.target.value });
     };
 
-    const handleConnect = (event) => {
+    const handleConnect = async (event) => {
         event.preventDefault();
         setStatus('connecting');
-        window.setTimeout(() => {
-            setLinkedAccount(buildLinkedAccount(selectedBank, credentials.mobileNumber));
-            markBankLinked();
+        try {
+            const { default: authService } = await import('../../services/authService');
+            const result = await authService.linkBankAccount(selectedBank.name, credentials.mobileNumber, credentials.password, credentials.otp);
+            setLinkedAccount({
+                institution: result.bank_name || selectedBank.name,
+                accountNumber: result.account_number || `XXXX-${credentials.mobileNumber.slice(-4) || '2048'}`,
+                creditScore: result.credit_score,
+                underwriting: result.underwriting,
+                metrics: result.nchl_statement_metrics,
+            });
+            markBankLinked(result.bank_name || selectedBank.name, result.account_number);
+            await refreshUser();
             setStatus('connected');
-        }, 1100);
+        } catch (error) {
+            setStatus('failed');
+            alert(error.response?.data?.detail || 'Bank linking failed');
+        }
     };
 
     const handleBankSelect = (bank) => {
@@ -112,7 +113,7 @@ const BankConnectionDemo = () => {
                     <ShieldCheck size={14} /> Demo Only
                 </span>
                 <h1>Link Bank Account</h1>
-                <p>Soft-coded mock flow for choosing a bank, entering online banking credentials, and showing the account balance.</p>
+                <p>Demo flow for choosing a commercial bank and linking mobile banking credentials.</p>
             </div>
 
             <div className="bank-demo-layout">
@@ -193,6 +194,22 @@ const BankConnectionDemo = () => {
                                 />
                             </div>
                         </label>
+                        <label>
+                            <span>OTP</span>
+                            <div className="bank-input-wrap">
+                                <KeyRound size={18} />
+                                <input
+                                    name="otp"
+                                    type="text"
+                                    inputMode="numeric"
+                                    value={credentials.otp}
+                                    onChange={handleCredentialChange}
+                                    placeholder="123456"
+                                    maxLength="6"
+                                    required
+                                />
+                            </div>
+                        </label>
 
                         <div className="bank-actions">
                             <button className="btn btn-primary" type="submit" disabled={status === 'connecting'}>
@@ -222,21 +239,26 @@ const BankConnectionDemo = () => {
                                     <span>Account</span>
                                     <strong>{linkedAccount.accountNumber}</strong>
                                 </div>
-                                <div className="summary-item balance">
-                                    <span>Available Balance</span>
-                                    <strong>{formatNpr(linkedAccount.availableBalance)}</strong>
-                                </div>
-                                <div className="summary-item">
-                                    <span>Monthly Inflow</span>
-                                    <strong>{formatNpr(linkedAccount.monthlyInflow)}</strong>
-                                </div>
+                                {isBorrower && (
+                                    <>
+                                        <div className="summary-item">
+                                            <span>Credit Score</span>
+                                            <strong>{linkedAccount.creditScore ?? 800}</strong>
+                                        </div>
+                                        <div className="summary-item">
+                                            <span>Eligible Limit</span>
+                                            <strong>Rs. {(linkedAccount.underwriting?.max_eligible_limit || 500000).toLocaleString()}</strong>
+                                        </div>
+                                    </>
+                                )}
                             </div>
                             <div className="money-flow-list">
-                                <p><CheckCircle2 size={16} /> {linkedAccount.borrowerDisbursement}</p>
-                                <p><CheckCircle2 size={16} /> {linkedAccount.lenderDebit}</p>
+                                <p><CheckCircle2 size={16} /> Average monthly salary: Rs. {(linkedAccount.metrics?.avg_monthly_salary || 0).toLocaleString()}</p>
+                                <p><CheckCircle2 size={16} /> Average monthly balance: Rs. {(linkedAccount.metrics?.average_monthly_balance || 0).toLocaleString()}</p>
+                                <p><CheckCircle2 size={16} /> Monthly free cashflow: Rs. {(linkedAccount.underwriting?.underwriting_analytics?.monthly_free_cashflow || 0).toLocaleString()}</p>
                             </div>
                             <div className="bank-note success">
-                                This is demo-only. Later your friend can replace this mock account object with backend NCHL/SBI or wallet data.
+                                NCHL demo statement data has been extracted and saved to your credit profile.
                             </div>
                         </>
                     ) : (

@@ -6,6 +6,7 @@ class MarketplaceLoanSchema(BaseModel):
 
     borrower_name: str      # display name (first name / masked)
     amount: int
+    lender_max_amount: int
     purpose: str
     interest_rate: float
     tenure_months: int

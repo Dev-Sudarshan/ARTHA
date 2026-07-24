@@ -99,7 +99,7 @@ def login_user(phone: str, password: str, otp: str = None) -> dict:
 
     # Check real KYC status
     kyc_data = get_item("kyc", phone)
-    kyc_verified = (kyc_data.get("status") == "APPROVED") if kyc_data else False
+    kyc_verified = (kyc_data.get("status") in {"APPROVED", "VERIFIED"}) if kyc_data else False
 
     token = create_session(phone)
     return {

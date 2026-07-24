@@ -4,7 +4,7 @@ import { User, Phone, Mail, MapPin, BadgeCheck, AlertCircle, Calendar, Shield, B
 import './Profile.css';
 
 const Profile = () => {
-    const { user } = useAuth();
+    const { user, bankLinked } = useAuth();
 
     if (!user) {
         return (
@@ -23,6 +23,8 @@ const Profile = () => {
     const kycClass = user.kycStatus === 'verified' ? 'success'
         : user.kycStatus === 'rejected' ? 'error'
         : 'warning';
+    const linkedBank = bankLinked || Boolean(user.bankAccountNumber);
+    const isBorrower = (user.preferredRole || 'borrower') !== 'lender';
 
     return (
         <div className="profile-page">
@@ -59,10 +61,12 @@ const Profile = () => {
 
             {/* Stats row */}
             <div className="profile-stats">
-                <div className="stat-item">
-                    <span className="stat-label">Credit Score</span>
-                    <span className="stat-value">{user.creditScore || '—'}</span>
-                </div>
+                {isBorrower && (
+                    <div className="stat-item">
+                        <span className="stat-label">Credit Score</span>
+                        <span className="stat-value">{user.creditScore ?? 0}</span>
+                    </div>
+                )}
                 <div className="stat-item">
                     <span className="stat-label">Total Lent</span>
                     <span className="stat-value">Rs. {(user.totalLended || 0).toLocaleString()}</span>
@@ -73,17 +77,19 @@ const Profile = () => {
                 </div>
                 <div className="stat-item">
                     <span className="stat-label">Borrowing Limit</span>
-                    <span className="stat-value">Rs. {(user.borrowingLimit || 50000).toLocaleString()}</span>
+                    <span className="stat-value">Rs. {(user.borrowingLimit ?? 0).toLocaleString()}</span>
                 </div>
             </div>
 
             <div className="profile-card bank-link-card">
                 <div>
                     <h2 className="section-title">Bank Account</h2>
-                    <p>Link online banking to show balance and use this account for demo loan disbursement or lending deduction.</p>
+                    <p>{linkedBank
+                        ? `${user.bankName || 'Bank account'} linked. Account ${user.bankAccountNumber || 'number pending'} is used for lending and repayment.`
+                        : 'Link online banking to unlock credit score, borrowing, and lending.'}</p>
                 </div>
-                <Link to="/bank-connection-demo" className="btn-profile-primary">
-                    <Building2 size={16} /> Link Bank Account
+                <Link to="/bank-connection-demo" className={linkedBank ? 'btn-profile-outline' : 'btn-profile-primary'}>
+                    <Building2 size={16} /> {linkedBank ? 'Relink Bank Account' : 'Link Bank Account'}
                 </Link>
             </div>
 

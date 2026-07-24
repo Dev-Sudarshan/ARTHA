@@ -2,22 +2,9 @@ import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import loanService from '../../services/loanService';
-import { BarChart3, ChevronRight, PlusCircle, Search, ShieldCheck, TrendingUp, Users } from 'lucide-react';
+import { ChevronRight, PlusCircle, Search, ShieldCheck, TrendingUp } from 'lucide-react';
 import '../../styles/global.css';
 import './Marketplace.css';
-
-const diversifiedLoanProduct = {
-    id: 'diversified-loan-pool',
-    title: 'Diversified Loan Pool',
-    borrower: 'Verified borrower basket',
-    purpose: 'Spread your lending across multiple verified loans with per-lender exposure caps.',
-    amount: 100000,
-    fundedAmount: 64000,
-    lenderLimitPercent: 10,
-    interest: 12,
-    tenure: 12,
-    participants: 6,
-};
 
 const inferCategory = (purpose = '') => {
     const p = purpose.toLowerCase();
@@ -36,10 +23,8 @@ const getRiskScore = (score) => {
     return 'D';
 };
 
-const formatNpr = (amount) => `NPR ${amount.toLocaleString()}`;
-
 const Marketplace = () => {
-    const { user, bankLinked } = useAuth();
+    const { user, bankLinked, refreshUser } = useAuth();
     const navigate = useNavigate();
     const [searchTerm, setSearchTerm] = useState('');
     const [activeCategory, setActiveCategory] = useState('All');
@@ -48,9 +33,8 @@ const Marketplace = () => {
 
     const userRole = user?.activeRole && user.activeRole !== 'none' ? user.activeRole : user?.preferredRole;
     const isLender = userRole === 'lender';
-    const categories = isLender
-        ? ['All', 'Diversified', 'Agriculture', 'Business', 'Education', 'Personal']
-        : ['All', 'Agriculture', 'Business', 'Education', 'Personal'];
+    const linkedBank = bankLinked || Boolean(user?.bankAccountNumber);
+    const categories = ['All', 'Agriculture', 'Business', 'Education', 'Personal'];
 
     useEffect(() => {
         const fetchLoans = async () => {
@@ -62,6 +46,7 @@ const Marketplace = () => {
                     purpose: loan.purpose,
                     category: inferCategory(loan.purpose),
                     amount: loan.amount,
+                    lenderMaxAmount: loan.lender_max_amount || Math.floor(loan.amount * 0.1),
                     tenure: loan.tenure_months,
                     interest: loan.interest_rate,
                     funded: 0,
@@ -93,22 +78,12 @@ const Marketplace = () => {
         });
     }, [searchTerm, activeCategory, loans]);
 
-    const showDiversifiedProduct = useMemo(() => {
-        if (!isLender) return false;
-        if (activeCategory !== 'All' && activeCategory !== 'Diversified') return false;
-        const query = searchTerm.trim().toLowerCase();
-        if (!query) return true;
-        return `${diversifiedLoanProduct.title} ${diversifiedLoanProduct.borrower} ${diversifiedLoanProduct.purpose}`
-            .toLowerCase()
-            .includes(query);
-    }, [activeCategory, isLender, searchTerm]);
-
     const handleRequestLoan = () => {
         if (!user) {
             navigate('/login');
             return;
         }
-        if (!bankLinked) {
+        if (!linkedBank) {
             navigate('/bank-connection-demo');
             return;
         }
@@ -124,12 +99,14 @@ const Marketplace = () => {
         navigate('/request-loan');
     };
 
-    const handleFund = (loan) => {
+    const handleFund = async (loan) => {
         if (!user) {
             navigate('/login');
             return;
         }
-        if (!bankLinked) {
+        const latestUser = user.bankAccountNumber ? user : await refreshUser().catch(() => null);
+        const latestLinkedBank = Boolean(latestUser?.bankLinked || latestUser?.bankAccountNumber || linkedBank);
+        if (!latestLinkedBank || !latestUser?.bankAccountNumber) {
             navigate('/bank-connection-demo');
             return;
         }
@@ -144,25 +121,14 @@ const Marketplace = () => {
         }
 
         const LENDING_LIMIT = 500000;
-        if (user.totalLended + loan.amount > LENDING_LIMIT) {
-            alert(`Investment failed. Your total lending limit is NPR ${LENDING_LIMIT.toLocaleString()}. You have already lended NPR ${user.totalLended.toLocaleString()}.`);
+        const fundingAmount = loan.lenderMaxAmount || Math.floor(loan.amount * 0.1);
+        const totalLended = latestUser.totalLended || 0;
+        if (totalLended + fundingAmount > LENDING_LIMIT) {
+            alert(`Investment failed. Your total lending limit is NPR ${LENDING_LIMIT.toLocaleString()}. You have already lended NPR ${totalLended.toLocaleString()}.`);
             return;
         }
 
-        navigate('/payment', { state: { loan } });
-    };
-
-    const handleDiversifiedFund = () => {
-        handleFund({
-            id: diversifiedLoanProduct.id,
-            borrower: diversifiedLoanProduct.borrower,
-            purpose: diversifiedLoanProduct.purpose,
-            amount: Math.floor((diversifiedLoanProduct.amount * diversifiedLoanProduct.lenderLimitPercent) / 100),
-            tenure: diversifiedLoanProduct.tenure,
-            interest: diversifiedLoanProduct.interest,
-            funded: Math.round((diversifiedLoanProduct.fundedAmount / diversifiedLoanProduct.amount) * 100),
-            riskScore: 'A',
-        });
+        navigate('/payment', { state: { loan: { ...loan, fundingAmount } } });
     };
 
     return (
@@ -175,7 +141,7 @@ const Marketplace = () => {
                     <h1 className="text-4xl font-bold">{isLender ? 'Lending Marketplace' : 'Borrowing Hub'}</h1>
                     <p className="text-muted text-lg">
                         {isLender
-                            ? 'Choose direct loans or diversified lending products from verified borrowers.'
+                            ? 'Choose direct loans from verified borrowers.'
                             : 'Prepare your loan request and track borrower-ready opportunities.'}
                     </p>
                 </div>
@@ -212,70 +178,8 @@ const Marketplace = () => {
 
             {loading ? (
                 <div className="text-center p-12"><div className="spinner"></div> Loading Marketplace...</div>
-            ) : showDiversifiedProduct || filteredLoans.length > 0 ? (
+            ) : filteredLoans.length > 0 ? (
                 <div className="loans-grid grid grid-3 gap-8">
-                    {showDiversifiedProduct && (
-                        <div className="loan-card diversified-product-card card glass hover:shadow-xl transition-all">
-                            <div className="loan-header flex justify-between items-start mb-6">
-                                <div className="borrower-info flex gap-4">
-                                    <div className="avatar-placeholder diversified-avatar">
-                                        <Users size={24} />
-                                    </div>
-                                    <div>
-                                        <h4 className="text-lg font-bold">{diversifiedLoanProduct.title}</h4>
-                                        <div className="flex items-center gap-1 text-xs font-semibold text-success uppercase">
-                                            <ShieldCheck size={12} /> Marketplace Product
-                                        </div>
-                                    </div>
-                                </div>
-                                <span className="risk-badge risk-A">Risk A</span>
-                            </div>
-
-                            <div className="loan-details p-5 rounded-2xl bg-slate-50/50 mb-8 border border-slate-100">
-                                <p className="purpose font-medium text-slate-700 leading-relaxed mb-6">"{diversifiedLoanProduct.purpose}"</p>
-
-                                <div className="stats-row flex flex-col gap-4">
-                                    <div className="detail-row flex justify-between items-center">
-                                        <span className="text-muted text-sm font-medium">Pool Size</span>
-                                        <span className="text-lg font-black text-slate-800">{formatNpr(diversifiedLoanProduct.amount)}</span>
-                                    </div>
-
-                                    <div className="progress-container">
-                                        <div className="flex justify-between text-xs font-bold mb-2">
-                                            <span className="text-primary">
-                                                {Math.round((diversifiedLoanProduct.fundedAmount / diversifiedLoanProduct.amount) * 100)}% Funded
-                                            </span>
-                                            <span className="text-muted">{diversifiedLoanProduct.participants} lenders</span>
-                                        </div>
-                                        <div className="progress-bar-bg h-2 rounded-full bg-slate-200 overflow-hidden">
-                                            <div
-                                                className="progress-fill h-full bg-primary"
-                                                style={{ width: `${Math.round((diversifiedLoanProduct.fundedAmount / diversifiedLoanProduct.amount) * 100)}%` }}
-                                            ></div>
-                                        </div>
-                                    </div>
-
-                                    <div className="diversified-caps">
-                                        <div>
-                                            <BarChart3 size={18} />
-                                            <span>Max per lender</span>
-                                            <strong>{formatNpr(Math.floor((diversifiedLoanProduct.amount * diversifiedLoanProduct.lenderLimitPercent) / 100))}</strong>
-                                        </div>
-                                        <div>
-                                            <TrendingUp size={18} />
-                                            <span>Return</span>
-                                            <strong>{diversifiedLoanProduct.interest}% p.a.</strong>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <button onClick={handleDiversifiedFund} className="btn btn-primary w-100 py-4 font-bold text-md shadow-lg shadow-blue-500/20" style={{ gap: '0.6rem' }}>
-                                Fund Diversified Pool <ChevronRight size={20} />
-                            </button>
-                        </div>
-                    )}
-
                     {filteredLoans.map((loan, index) => (
                         <div key={loan.id} className="loan-card card glass hover:shadow-xl transition-all" style={{ animationDelay: `${index * 0.1}s` }}>
                             <div className="loan-header flex justify-between items-start mb-6">
@@ -326,7 +230,7 @@ const Marketplace = () => {
                             </div>
 
                             <button onClick={() => handleFund(loan)} className="btn btn-primary w-100 py-4 font-bold text-md shadow-lg shadow-blue-500/20" style={{ gap: '0.6rem' }}>
-                                Fund this Loan <ChevronRight size={20} />
+                                Fund NPR {(loan.lenderMaxAmount || Math.floor(loan.amount * 0.1)).toLocaleString()} <ChevronRight size={20} />
                             </button>
                         </div>
                     ))}

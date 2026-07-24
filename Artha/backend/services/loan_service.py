@@ -8,11 +8,12 @@ from utils.emi_calculator import calculate_emi
 from services.pdf_service import generate_loan_agreement_pdf
 from services.cib_service import run_cib_regulatory_screening
 from services.nchl_service import process_nchl_statement_analysis
-from services.credit_score_service import calculate_credit_score
+from services.credit_score_service import build_fixed_borrower_scorecard
 
 from db.database import get_item, put_item, get_all_items
 import uuid
 from urllib.parse import urlparse
+from datetime import datetime
 
 
 def _resolve_upload_ref(ref: str) -> str:
@@ -49,6 +50,7 @@ def _resolve_upload_ref(ref: str) -> str:
 # ---- CONSTANTS ----
 GUARANTOR_REQUIRED_AMOUNT = 30000
 PLATFORM_FEE_PERCENT = 3.0
+LENDER_MAX_SHARE_PERCENT = 10
 
 BORROW_LIMITS = {
     "HIGH": 100000,
@@ -117,32 +119,27 @@ def create_borrow_request(payload: BorrowRequestSchema):
     kyc_status = kyc_data.get("status")
     print(f"[DEBUG] KYC status for {user_id}: {kyc_status}")
     
-    if kyc_status != "VERIFIED":
-        # Allow APPROVED as well (some systems use APPROVED instead of VERIFIED)
-        if kyc_status == "APPROVED":
-            print(f"[DEBUG] Allowing APPROVED status as equivalent to VERIFIED")
-            kyc_data["status"] = "VERIFIED"  # Normalize it
-            put_item("kyc", user_id, kyc_data)
-        else:
-            raise Exception(f"KYC not verified. Current status: {kyc_status}. Admin must approve your KYC first.")
+    if kyc_status not in {"VERIFIED", "APPROVED"}:
+        raise Exception(f"KYC not verified. Current status: {kyc_status}. Admin must approve your KYC first.")
 
-    # Borrower-only underwriting sequence: CIB must be completely clean before
-    # statement metrics are requested from NCHL. Lender flows never call this service.
-    borrower_cit_no = kyc_data.get("id_documents", {}).get("id_details", {}).get("id_number", "").strip()
-    cib_result = run_cib_regulatory_screening(borrower_cit_no)
-    if not cib_result["eligible"]:
-        raise Exception("Not Eligible to Borrow")
+    user_data = get_item("users", user_id) or {}
+    if user_data.get("preferred_role", "borrower") != "borrower":
+        raise Exception("Only borrower accounts can create borrow requests")
 
     bank_details = kyc_data.get("bank_details", {})
+    if not (bank_details.get("linked") or bank_details.get("account_number") or bank_details.get("account_no")):
+        raise Exception("Link a bank account before creating a borrow request")
+
     account_number = str(
         bank_details.get("account_number")
         or bank_details.get("account_no")
-        or user_id
     )
     nchl_result = process_nchl_statement_analysis(account_number)
-    scorecard_result = calculate_credit_score(nchl_result["metrics"], payload.tenure_months)
-    if scorecard_result["verdict"] != "APPROVED":
-        raise Exception("Not Eligible to Borrow")
+    scorecard_result = build_fixed_borrower_scorecard(800)
+    kyc_data["underwriting"] = scorecard_result
+    kyc_data["bank_details"]["nchl_statement_metrics"] = nchl_result["metrics"]
+    put_item("kyc", user_id, kyc_data)
+    put_item("credit_scores", user_id, scorecard_result["credit_score"])
     if payload.amount > scorecard_result["max_eligible_limit"]:
         raise Exception(
             f"Requested amount exceeds the affordable limit of NPR {scorecard_result['max_eligible_limit']:,}."
@@ -191,7 +188,13 @@ def create_borrow_request(payload: BorrowRequestSchema):
     # 8️⃣ Get Borrower Details from KYC for PDF
     basic_info = kyc_data.get("basic_info", {})
     borrower_name = " ".join(filter(None, [basic_info.get("first_name"), basic_info.get("middle_name"), basic_info.get("last_name")]))
-    borrower_cit_no = borrower_cit_no or "N/A"
+    borrower_cit_no = (
+        kyc_data.get("id_documents", {})
+        .get("id_details", {})
+        .get("id_number")
+        or "N/A"
+    )
+    cib_result = kyc_data.get("cib_screening") or run_cib_regulatory_screening(borrower_cit_no)
 
     # 9️⃣ Generate unsigned agreement PDF
     pdf_ref = generate_loan_agreement_pdf(
@@ -207,11 +210,8 @@ def create_borrow_request(payload: BorrowRequestSchema):
         loan_id=loan_id,
     )
 
-    # Store loan draft (DB)
-    # DRAFT: Step 1 completed (basic info + PDF generated)
-    # PENDING_VERIFICATION: Step 2 completed (signed PDF uploaded)
-    is_complete = bool(payload.agreement_pdf_signed)
-    loan_status = "PENDING_VERIFICATION" if is_complete else "DRAFT"
+    # A completed borrower form goes directly to the admin approval queue.
+    loan_status = "PENDING_ADMIN_APPROVAL"
     
     loan_data = {
         "loan_id": loan_id,
@@ -231,7 +231,7 @@ def create_borrow_request(payload: BorrowRequestSchema):
         "agreement_pdf_unsigned": pdf_ref,
         "agreement_pdf_signed": payload.agreement_pdf_signed,
         "video_verification_ref": payload.video_verification_ref,
-        "video_verification_result": {"status": "disabled", "message": "Video verification model removed"},
+        "video_verification_result": {"status": "not_required"},
         "ai_suggestion": None,
         "kyc_selfie_ref": kyc_data.get("declaration", {}).get("declaration_video", {}).get("selfie_image_ref"),
         "credit_score": credit_score,
@@ -244,15 +244,12 @@ def create_borrow_request(payload: BorrowRequestSchema):
 
     put_item("loans", loan_id, loan_data)
 
-    if is_complete:
-        print(f"Loan {loan_id} submitted and is pending admin review.")
-    else:
-        print(f"Loan {loan_id} saved as draft.")
+    print(f"Loan {loan_id} submitted and is pending admin review.")
 
     return {
         "loan_id": loan_id,
         "status": loan_status,
-        "message": "Your loan application is under review. Admin review is pending." if is_complete else "Loan draft saved. Complete Step 2 to submit.",
+        "message": "Your loan application is under review. Admin review is pending.",
         "agreement_pdf": f"/pdfs/{os.path.basename(pdf_ref)}",
         "emi": emi,
         "total_payable": total_payable,
@@ -291,17 +288,9 @@ def get_marketplace_listings():
         listed_loans.append((row['loan_id'], loan))
         user_ids.add(loan["user_id"])
 
-    # Batch-fetch all needed users in ONE query
-    users_map = {}
-    if user_ids:
-        # Use ANY() for batch lookup
-        cursor.execute("SELECT phone, json_data FROM users WHERE phone = ANY(%s)", (list(user_ids),))
-        for urow in cursor.fetchall():
-            ud = urow['json_data']
-            if isinstance(ud, str):
-                import json
-                ud = json.loads(ud)
-            users_map[urow['phone']] = ud
+    # Batch-fetch all needed users through the shared DB adapter so both
+    # Postgres and the local SQLite demo database use the same code path.
+    users_map = get_all_items("users") if user_ids else {}
 
     release_connection(conn)
 
@@ -322,6 +311,7 @@ def get_marketplace_listings():
                 loan_id=loan_id,
                 borrower_name=borrower_display_name,
                 amount=loan["amount"],
+                lender_max_amount=max(1, int((loan.get("net_amount_received") or loan["amount"]) * LENDER_MAX_SHARE_PERCENT / 100)),
                 purpose=loan["purpose"],
                 interest_rate=loan["interest_rate"],
                 tenure_months=loan["tenure_months"],
@@ -373,20 +363,32 @@ def accept_loan(payload: LenderAcceptanceSchema):
     if not loan_to_accept:
          raise Exception("Loan not found")
          
-    if total_lended_so_far + loan_to_accept["amount"] > LENDING_LIMIT:
+    lender_max_amount = max(1, int((loan_to_accept.get("net_amount_received") or loan_to_accept["amount"]) * LENDER_MAX_SHARE_PERCENT / 100))
+    if payload.amount > lender_max_amount:
+        raise Exception(f"Lenders can fund only up to 10% of this loan: NPR {lender_max_amount:,}")
+
+    if total_lended_so_far + payload.amount > LENDING_LIMIT:
         raise Exception("Lending limit (500,000) exceeded")
 
     if loan["status"] != "LISTED":
         raise Exception("Loan is not available for acceptance")
 
     lender_kyc = get_item("kyc", lender_id)
-    if not lender_kyc or lender_kyc.get("status") != "VERIFIED":
+    if not lender_kyc or lender_kyc.get("status") not in {"APPROVED", "VERIFIED"}:
         raise Exception("Lender KYC not verified")
+    lender_user = get_item("users", lender_id) or {}
+    if lender_user.get("preferred_role", "borrower") != "lender":
+        raise Exception("Only lender accounts can fund loans")
+    lender_bank = lender_kyc.get("bank_details", {})
+    if not (lender_bank.get("linked") or lender_bank.get("account_number") or lender_bank.get("account_no")):
+        raise Exception("Link a bank account before lending")
 
     # Update loan
     loan["lender_id"] = lender_id
+    loan["funded_amount"] = payload.amount
     loan["status"] = "ACTIVE"
-    loan["start_timestamp"] = payload.accepted_at.isoformat()
+    accepted_at = datetime.fromtimestamp(payload.accepted_at).isoformat()
+    loan["start_timestamp"] = accepted_at
 
     put_item("loans", loan_id, loan)
 
@@ -397,7 +399,8 @@ def accept_loan(payload: LenderAcceptanceSchema):
         {
             "loan_id": loan_id,
             "lender_id": lender_id,
-            "accepted_at": payload.accepted_at.isoformat(),
+            "amount": payload.amount,
+            "accepted_at": accepted_at,
         },
     )
 
@@ -439,9 +442,10 @@ def get_user_portfolio(user_id: str):
     for loan_id, loan in loans_map.items():
         if loan.get("lender_id") == user_id:
             investments.append(loan)
-            total_invested += loan["amount"]
+            invested_amount = loan.get("funded_amount") or loan["amount"]
+            total_invested += invested_amount
             # Est interest
-            interest = loan["amount"] * (loan["interest_rate"] / 100)
+            interest = invested_amount * (loan["interest_rate"] / 100)
             interest_earned += interest
             
     return {

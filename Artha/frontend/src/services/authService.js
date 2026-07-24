@@ -28,6 +28,16 @@ const authService = {
         return response.data;
     },
 
+    linkBankAccount: async (bankName, mobileNumber, password, otp) => {
+        const response = await api.post('/auth/bank-link', {
+            bank_name: bankName,
+            mobile_number: mobileNumber,
+            password,
+            otp,
+        });
+        return response.data;
+    },
+
     // 4. Send Login OTP (if needed, e.g., 2FA)
     sendLoginOtp: async (phone) => {
         const response = await api.post('/auth/send-login-otp', { phone });

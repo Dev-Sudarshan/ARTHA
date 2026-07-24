@@ -8,8 +8,18 @@ from services.loan_service import (
     accept_loan,
     get_user_portfolio,
 )
+from db.database import get_item
 
 router = APIRouter(prefix="/loans", tags=["loans"])
+
+
+def _require_verified_kyc_and_bank(user_id: str, action: str):
+    kyc_data = get_item("kyc", user_id) or {}
+    if kyc_data.get("status") not in {"APPROVED", "VERIFIED"}:
+        raise HTTPException(status_code=403, detail=f"Verified KYC is required before {action}")
+    bank_details = kyc_data.get("bank_details", {})
+    if not (bank_details.get("linked") or bank_details.get("account_number") or bank_details.get("account_no")):
+        raise HTTPException(status_code=403, detail=f"Linked bank account is required before {action}")
 
 
 @router.get("/my-portfolio")
@@ -28,6 +38,7 @@ def create_borrow_listing(
     current_user=Depends(get_current_user),
 ):
     try:
+        _require_verified_kyc_and_bank(current_user, "borrowing")
         # Enforce auth user as the borrower
         payload.user_id = current_user
         return create_borrow_request(payload)
@@ -50,6 +61,7 @@ def accept_loan_route(
     current_user=Depends(get_current_user),
 ):
     try:
+        _require_verified_kyc_and_bank(current_user, "lending")
         payload.lender_id = current_user
         if loan_id != payload.loan_id:
             raise Exception("Loan ID mismatch")

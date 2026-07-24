@@ -1,5 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 import traceback
+from datetime import datetime
+from random import randint
 from auth.auth_service import (
     register_user,
     verify_registration_otp,
@@ -11,9 +13,8 @@ from auth.auth_service import (
 from auth.auth_dependency import get_current_user
 from db.database import get_item, get_all_items, get_user_loan_summary, get_user_profile_data
 from services.loan_service import get_credit_limit
-from services.cib_service import run_cib_regulatory_screening
-from services.nchl_service import process_nchl_statement_analysis
-from services.credit_score_service import calculate_credit_score, classify_borrower
+from services.nchl_service import get_demo_nchl_account_for_mobile, process_nchl_statement_analysis
+from services.credit_score_service import build_fixed_borrower_scorecard
 from db.database import put_item
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -21,24 +22,25 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 def _get_borrower_underwriting(phone: str, kyc_data: dict, active_role: str) -> dict | None:
     """Build borrower form permissions from the same pipeline used at submission."""
-    if active_role == "lender" or kyc_data.get("status") not in {"APPROVED", "VERIFIED"}:
+    if active_role != "borrower" or kyc_data.get("status") not in {"APPROVED", "VERIFIED"}:
         return None
 
-    citizenship_number = str(
-        kyc_data.get("id_documents", {}).get("id_details", {}).get("id_number", "")
-    ).strip()
-    cib_result = run_cib_regulatory_screening(citizenship_number)
-    if not cib_result["eligible"]:
-        classification = classify_borrower(0)
-        return {"credit_score": 0, "verdict": "DECLINED", **classification}
-
     bank_details = kyc_data.get("bank_details", {})
-    account_number = str(bank_details.get("account_number") or bank_details.get("account_no") or phone)
+    if not (bank_details.get("linked") or bank_details.get("account_number") or bank_details.get("account_no")):
+        return None
+
+    account_number = str(bank_details.get("account_number") or bank_details.get("account_no"))
     nchl_result = process_nchl_statement_analysis(account_number)
-    scorecard = calculate_credit_score(nchl_result["metrics"])
+    scorecard = build_fixed_borrower_scorecard()
     put_item("credit_scores", phone, scorecard["credit_score"])
-    put_item("underwriting_profiles", phone, scorecard)
+    kyc_data["underwriting"] = scorecard
+    put_item("kyc", phone, kyc_data)
     return scorecard
+
+
+def _has_linked_bank(kyc_data: dict) -> bool:
+    bank_details = kyc_data.get("bank_details", {})
+    return bool(bank_details.get("linked") or bank_details.get("account_number") or bank_details.get("account_no"))
 
 
 @router.post("/register")
@@ -124,6 +126,58 @@ def logout(payload: dict):
     return {"message": "Logged out successfully"}
 
 
+@router.post("/bank-link")
+def link_bank_account(payload: dict, current_user=Depends(get_current_user)):
+    """Persist the demo bank credentials after KYC approval."""
+    kyc_data = get_item("kyc", current_user) or {}
+    if kyc_data.get("status") not in {"APPROVED", "VERIFIED"}:
+        raise HTTPException(status_code=403, detail="Admin must approve KYC before linking a bank account")
+
+    bank_name = str(payload.get("bank_name") or "").strip()
+    mobile_number = str(payload.get("mobile_number") or "").strip()
+    password = str(payload.get("password") or "")
+    otp = str(payload.get("otp") or "")
+    if not bank_name or not mobile_number or not password or otp != "123456":
+        raise HTTPException(status_code=400, detail="Bank, mobile number, password, and OTP 123456 are required")
+
+    account_number = get_demo_nchl_account_for_mobile(mobile_number) or f"DEMO-{randint(1000000000, 9999999999)}"
+    nchl_result = process_nchl_statement_analysis(account_number)
+    preferred_role = (get_item("users", current_user) or {}).get("preferred_role", "borrower")
+    scorecard = build_fixed_borrower_scorecard(800) if preferred_role == "borrower" else None
+
+    kyc_data["bank_details"] = {
+        "linked": True,
+        "bank_name": bank_name,
+        "mobile_number": mobile_number,
+        "password": password,
+        "account_number": account_number,
+        "linked_at": datetime.utcnow().isoformat(),
+        "nchl_statement_metrics": nchl_result["metrics"],
+    }
+    kyc_data["underwriting"] = scorecard
+    put_item("kyc", current_user, kyc_data)
+    if scorecard:
+        put_item("credit_scores", current_user, scorecard["credit_score"])
+    put_item("financial_data", current_user, {
+        "account_number": account_number,
+        "bank_name": bank_name,
+        "nchl_status": nchl_result["status"],
+        "nchl_statement_metrics": nchl_result["metrics"],
+        "underwriting_scorecard": scorecard,
+        "updated_at": datetime.utcnow().isoformat(),
+    })
+    return {
+        "message": "Bank account linked and NCHL statement data extracted",
+        "bank_linked": True,
+        "bank_name": bank_name,
+        "account_number": account_number,
+        "nchl_status": nchl_result["status"],
+        "nchl_statement_metrics": nchl_result["metrics"],
+        "underwriting": scorecard,
+        "credit_score": scorecard["credit_score"] if scorecard else None,
+    }
+
+
 @router.get("/me")
 def me(current_user=Depends(get_current_user)):
     """Return live user profile info based on session token — single DB connection."""
@@ -137,10 +191,15 @@ def me(current_user=Depends(get_current_user)):
 
     kyc_data = profile["kyc"] or {}
     kyc_status = kyc_data.get("status") or "INCOMPLETE"
-    kyc_verified = kyc_status == "APPROVED"
+    kyc_verified = kyc_status in {"APPROVED", "VERIFIED"}
+    bank_details = kyc_data.get("bank_details", {})
+    bank_linked = _has_linked_bank(kyc_data)
 
-    underwriting = _get_borrower_underwriting(phone, kyc_data, profile["active_role"])
+    preferred_role = user.get("preferred_role") or user.get("preferredRole") or "borrower"
+    underwriting = _get_borrower_underwriting(phone, kyc_data, preferred_role)
     borrowing_limit = underwriting["request_limit_cap"] if underwriting else 0
+    is_borrower = preferred_role != "lender"
+    credit_score = underwriting["credit_score"] if underwriting else (profile["credit_score"] if bank_linked else 0)
 
     return {
         "firstName": user.get("first_name") or user.get("firstName") or "",
@@ -152,7 +211,7 @@ def me(current_user=Depends(get_current_user)):
         "preferredRole": user.get("preferred_role") or user.get("preferredRole") or "borrower",
         "kycVerified": kyc_verified,
         "kycStatus": kyc_status,
-        "creditScore": underwriting["credit_score"] if underwriting else profile["credit_score"],
+        "creditScore": credit_score if is_borrower else None,
         "activeRole": profile["active_role"],
         "totalLended": profile["total_lended"],
         "totalBorrowed": profile["total_borrowed"],
@@ -161,4 +220,9 @@ def me(current_user=Depends(get_current_user)):
         "requestLimitCap": borrowing_limit,
         "interestRateFloor": underwriting["interest_rate_floor"] if underwriting else None,
         "formPermissions": underwriting["form_permissions"] if underwriting else None,
+        "bankLinked": bank_linked,
+        "bankName": bank_details.get("bank_name"),
+        "bankAccountNumber": bank_details.get("account_number"),
+        "nchlStatementMetrics": bank_details.get("nchl_statement_metrics"),
+        "underwriting": underwriting or kyc_data.get("underwriting"),
     }

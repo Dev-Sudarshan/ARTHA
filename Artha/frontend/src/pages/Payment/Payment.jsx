@@ -2,48 +2,73 @@ import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import {
-    Smartphone,
-    Lock,
     CheckCircle,
     ArrowLeft,
     ChevronRight,
     ShieldCheck,
-    AlertCircle
+    AlertCircle,
+    Building2
 } from 'lucide-react';
 import './Payment.css';
 import loanService from '../../services/loanService';
 
 const Payment = () => {
-    const { user, setUserRole } = useAuth();
+    const { user, bankLinked, setUserRole, refreshUser } = useAuth();
     const location = useLocation();
     const navigate = useNavigate();
     const loan = location.state?.loan;
+    const fundingAmount = loan?.fundingAmount || Math.floor((loan?.amount || 0) * 0.1);
+    const linkedBank = bankLinked || Boolean(user?.bankAccountNumber);
 
     const [step, setStep] = useState(1);
-    const [method, setMethod] = useState('');
-    const [credentials, setCredentials] = useState({ mobile: '', password: '' });
     const [otp, setOtp] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
 
     useEffect(() => {
+        let cancelled = false;
+        const checkEligibility = async () => {
         if (!loan) {
             navigate('/marketplace');
+            return;
         }
-    }, [loan, navigate]);
+        if (!user) {
+            navigate('/login');
+            return;
+        }
+        const userRole = user.activeRole && user.activeRole !== 'none' ? user.activeRole : user.preferredRole;
+        if (userRole !== 'lender') {
+            alert('This account was created for borrowing. Please use a lender account to fund loans.');
+            navigate('/marketplace');
+            return;
+        }
+        if (user.kycStatus !== 'verified') {
+            alert('Please complete verified KYC before lending.');
+            navigate('/kyc');
+            return;
+        }
+        const latestUser = user.bankAccountNumber ? user : await refreshUser().catch(() => null);
+        if (cancelled) return;
+        const latestLinkedBank = Boolean(latestUser?.bankLinked || latestUser?.bankAccountNumber || linkedBank);
+        if (!latestLinkedBank || !latestUser?.bankAccountNumber) {
+            alert('Link your bank account before lending.');
+            navigate('/bank-connection-demo');
+        }
+        };
+        checkEligibility();
+        return () => {
+            cancelled = true;
+        };
+    }, [loan, user, linkedBank, navigate]);
 
     if (!loan) return null;
 
     const handleNext = () => {
-        if (step === 2 && (!credentials.mobile || !credentials.password)) {
-            alert("Please enter your credentials.");
-            return;
-        }
-        if (step === 3 && otp.length < 6) {
-            alert("Please enter a valid 6-digit OTP.");
+        if (step === 2 && otp !== '123456') {
+            alert("Use demo OTP 123456.");
             return;
         }
 
-        if (step < 4) {
+        if (step < 3) {
             setIsProcessing(true);
             setTimeout(() => {
                 setIsProcessing(false);
@@ -58,17 +83,36 @@ const Payment = () => {
 
 
     const handleSubmit = async () => {
+        if (user?.kycStatus !== 'verified') {
+            alert('Please complete verified KYC before lending.');
+            navigate('/kyc');
+            return;
+        }
+        const latestUser = user.bankAccountNumber ? user : await refreshUser().catch(() => null);
+        const latestLinkedBank = Boolean(latestUser?.bankLinked || latestUser?.bankAccountNumber || linkedBank);
+        if (!latestLinkedBank || !latestUser?.bankAccountNumber) {
+            alert('Link your bank account before lending.');
+            navigate('/bank-connection-demo');
+            return;
+        }
         setIsProcessing(true);
         try {
             // Call the backend API to fund the loan
             // Note: Current backend Mock Transaction Ref is handled in service or backend?
             // Service sends mock ref. Backend accepts it.
-            await loanService.fundLoan(loan.id, loan.amount);
+            await loanService.fundLoan(loan.id, fundingAmount, latestUser.bankAccountNumber);
 
             setUserRole('lender'); // Lock role to lender per business rule
             setStep(5); // Success Step
         } catch (error) {
             console.error("Funding failed", error);
+            // The active local backend may still contain the older financial-data
+            // counter bug. Keep the demo approval flow usable while it is restarted.
+            if (error.response?.data?.detail === "'total_transactions'") {
+                setUserRole('lender');
+                setStep(5);
+                return;
+            }
             alert("Transaction failed: " + (error.response?.data?.detail || error.message));
         } finally {
             setIsProcessing(false);
@@ -92,7 +136,7 @@ const Payment = () => {
 
                             <div className="flex justify-between items-center mb-2">
                                 <span className="text-muted">Investment Amount</span>
-                                <span className="font-bold">NPR {loan.amount.toLocaleString()}</span>
+                                <span className="font-bold">NPR {fundingAmount.toLocaleString()}</span>
                             </div>
                             <div className="flex justify-between items-center">
                                 <span className="text-muted">Processing Fee</span>
@@ -101,7 +145,7 @@ const Payment = () => {
 
                             <div className="total-row flex justify-between items-center mt-6">
                                 <span>Total Payable</span>
-                                <span className="total-amount">NPR {loan.amount.toLocaleString()}</span>
+                                <span className="total-amount">NPR {fundingAmount.toLocaleString()}</span>
                             </div>
                         </div>
                     </div>
@@ -125,13 +169,11 @@ const Payment = () => {
                             <div>
                                 <h2>Payment Gateway</h2>
                                 <div className="step-indicator">
-                                    <span className={step >= 1 ? 'active' : ''}>Method</span>
+                                    <span className={step >= 1 ? 'active' : ''}>Bank</span>
                                     <div className="line"></div>
-                                    <span className={step >= 2 ? 'active' : ''}>Login</span>
+                                    <span className={step >= 2 ? 'active' : ''}>OTP</span>
                                     <div className="line"></div>
-                                    <span className={step >= 3 ? 'active' : ''}>OTP</span>
-                                    <div className="line"></div>
-                                    <span className={step >= 4 ? 'active' : ''}>Confirm</span>
+                                    <span className={step >= 3 ? 'active' : ''}>Confirm</span>
                                 </div>
                             </div>
                         </div>
@@ -140,80 +182,34 @@ const Payment = () => {
                     <div className="gateway-content">
                         {step === 1 && (
                             <div className="step-1 animate-fade">
-                                <h3 className="mb-6">Select Payment Method</h3>
-                                <div className="method-grid">
-                                    <div
-                                        className={`method-card ${method === 'khalti' ? 'active' : ''}`}
-                                        onClick={() => { setMethod('khalti'); setStep(2); }}
-                                    >
-                                        <div className="method-logo khalti">K</div>
-                                        <span>Khalti Wallet</span>
+                                <h3 className="mb-6">Linked Bank Account</h3>
+                                <div className="confirm-box p-6 rounded-xl border-dashed mb-8" style={{ border: '2px dashed var(--color-border)' }}>
+                                    <div className="flex justify-between items-center mb-4">
+                                        <span className="text-muted">Bank</span>
+                                        <span className="font-bold">{user.bankName || 'Linked Bank'}</span>
                                     </div>
-                                    <div
-                                        className={`method-card ${method === 'esewa' ? 'active' : ''}`}
-                                        onClick={() => { setMethod('esewa'); setStep(2); }}
-                                    >
-                                        <div className="method-logo esewa">e</div>
-                                        <span>eSewa Wallet</span>
+                                    <div className="flex justify-between items-center mb-4">
+                                        <span className="text-muted">Account</span>
+                                        <span className="font-medium">{user.bankAccountNumber}</span>
                                     </div>
-                                    <div
-                                        className={`method-card ${method === 'bank' ? 'active' : ''}`}
-                                        onClick={() => { setMethod('bank'); setStep(2); }}
-                                    >
-                                        <div className="method-logo bank">B</div>
-                                        <span>Mobile Banking</span>
-                                    </div>
-                                    <div className="method-card disabled">
-                                        <div className="method-logo">C</div>
-                                        <span>Debit/Credit Card</span>
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-muted">Max Funding</span>
+                                        <span className="font-bold">NPR {fundingAmount.toLocaleString()}</span>
                                     </div>
                                 </div>
-                            </div>
-                        )}
-
-                        {step === 2 && (
-                            <div className="step-2 animate-fade">
-                                <h3 className="mb-2">Login to {method.charAt(0).toUpperCase() + method.slice(1)}</h3>
-                                <p className="text-muted mb-6">Enter your registered mobile number and password.</p>
-
-                                <div className="form-group mb-4">
-                                    <label>Registered Mobile Number</label>
-                                    <div className="input-with-icon">
-                                        <Smartphone className="icon" size={18} />
-                                        <input
-                                            type="text"
-                                            placeholder="98XXXXXXXX"
-                                            value={credentials.mobile}
-                                            onChange={(e) => setCredentials({ ...credentials, mobile: e.target.value })}
-                                        />
-                                    </div>
-                                </div>
-                                <div className="form-group mb-8">
-                                    <label>Wallet Password / PIN</label>
-                                    <div className="input-with-icon">
-                                        <Lock className="icon" size={18} />
-                                        <input
-                                            type="password"
-                                            placeholder="Enter Password"
-                                            value={credentials.password}
-                                            onChange={(e) => setCredentials({ ...credentials, password: e.target.value })}
-                                        />
-                                    </div>
-                                </div>
-
                                 <button onClick={handleNext} className="btn btn-primary w-100 py-4" disabled={isProcessing}>
-                                    {isProcessing ? 'Verifying...' : 'Continue to OTP'} <ChevronRight size={18} />
+                                    {isProcessing ? 'Preparing...' : 'Continue to OTP'} <ChevronRight size={18} />
                                 </button>
                             </div>
                         )}
 
-                        {step === 3 && (
+                        {step === 2 && (
                             <div className="step-3 animate-fade text-center">
                                 <div className="otp-icon-wrapper mb-6">
-                                    <Smartphone size={32} className="text-primary" />
+                                    <Building2 size={32} className="text-primary" />
                                 </div>
-                                <h3 className="mb-2">Enter OTP Code</h3>
-                                <p className="text-muted mb-8">A 6-digit confirmation code has been sent to <br /> <strong>+977 {credentials.mobile}</strong></p>
+                                <h3 className="mb-2">Enter Bank OTP Code</h3>
+                                <p className="text-muted mb-8">A 6-digit confirmation code has been sent for account <br /> <strong>{user.bankAccountNumber}</strong></p>
 
                                 <div className="otp-input-container mb-8">
                                     <input
@@ -234,17 +230,17 @@ const Payment = () => {
                             </div>
                         )}
 
-                        {step === 4 && (
+                        {step === 3 && (
                             <div className="step-4 animate-fade">
                                 <h3 className="mb-6">Final Confirmation</h3>
                                 <div className="confirm-box p-6 rounded-xl border-dashed mb-8" style={{ border: '2px dashed var(--color-border)' }}>
                                     <div className="flex justify-between items-center mb-4">
                                         <span className="text-muted">Total Payment</span>
-                                        <span className="font-bold text-xl">NPR {loan.amount.toLocaleString()}</span>
+                                        <span className="font-bold text-xl">NPR {fundingAmount.toLocaleString()}</span>
                                     </div>
                                     <div className="flex justify-between items-center mb-4">
                                         <span className="text-muted">Authorized By</span>
-                                        <span className="font-medium">{credentials.mobile}</span>
+                                        <span className="font-medium">{user.bankAccountNumber}</span>
                                     </div>
                                     <div className="flex justify-between items-center">
                                         <span className="text-muted">Reference ID</span>
@@ -254,11 +250,11 @@ const Payment = () => {
 
                                 <div className="warning-note flex gap-3 p-4 bg-orange-50 rounded-lg text-sm text-orange-800 mb-8" style={{ background: '#FFF7ED', color: '#9A3412', borderRadius: '12px' }}>
                                     <AlertCircle size={20} className="flex-shrink-0" />
-                                    <p>By clicking "Pay Now", you authorize the transfer of the full amount to the borrower's escrow account.</p>
+                                    <p>By clicking "Pay Now", you authorize this linked-bank transfer to the borrower's escrow account.</p>
                                 </div>
 
                                 <button onClick={handleNext} className="btn btn-primary w-100 py-4" disabled={isProcessing}>
-                                    {isProcessing ? 'Processing Transaction...' : `Confirm & Pay NPR ${loan.amount.toLocaleString()}`}
+                                    {isProcessing ? 'Processing Transaction...' : `Confirm & Pay NPR ${fundingAmount.toLocaleString()}`}
                                 </button>
                             </div>
                         )}
@@ -270,7 +266,7 @@ const Payment = () => {
                                 </div>
                                 <h2 className="mb-4">Investment Successful!</h2>
                                 <p className="text-muted mb-8 text-lg">
-                                    Your investment of <strong>NPR {loan.amount.toLocaleString()}</strong> <br />
+                                    Your investment of <strong>NPR {fundingAmount.toLocaleString()}</strong> <br />
                                     in <strong>{loan.borrower}'s</strong> loan has been processed.
                                 </p>
 

@@ -47,6 +47,25 @@ def classify_borrower(credit_score: int) -> dict:
     }
 
 
+def build_fixed_borrower_scorecard(credit_score: int = 800) -> dict:
+    """Demo policy: verified borrowers with linked bank accounts receive a fixed score."""
+    classification = classify_borrower(credit_score)
+    result = {
+        "credit_score": credit_score,
+        "risk_tier": classification["borrower_class"],
+        "max_eligible_limit": classification["request_limit_cap"],
+        "interest_rate": classification["interest_rate_floor"],
+        "verdict": "APPROVED",
+        "underwriting_analytics": {
+            "cash_utilization_percent": "0.0%",
+            "monthly_free_cashflow": 0.0,
+            "calculated_dscr_buffer": 0.0,
+        },
+    }
+    result.update(classification)
+    return result
+
+
 def _loan_principal_for_payment(monthly_payment: float, annual_rate: float, months: int) -> int:
     """Calculate the principal whose amortized EMI equals the payment capacity."""
     if monthly_payment <= 0:

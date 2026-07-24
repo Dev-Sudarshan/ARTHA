@@ -22,7 +22,6 @@ from routers.repayment_routes import router as repayment_router
 from routers.default_routes import router as default_router
 from routers.audit_routes import router as audit_router
 from routers import upload_routes
-from routers.dev_verify_routes import router as dev_verify_router
 from admin.admin_routes import router as admin_router
 from routers.borrower_router import router as borrower_router
 from routers.cib_routes import router as cib_router
@@ -75,7 +74,6 @@ app.include_router(repayment_router)
 app.include_router(default_router)
 app.include_router(audit_router)
 app.include_router(upload_routes.router)
-app.include_router(dev_verify_router)
 app.include_router(admin_router, prefix="/api", tags=["Admin Panel"])
 app.include_router(borrower_router)
 app.include_router(cib_router)

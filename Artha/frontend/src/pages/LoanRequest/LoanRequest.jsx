@@ -156,8 +156,8 @@ const LoanRequest = () => {
             };
 
             await loanService.createBorrowRequest(loanId, loanData, guarantorData, guarantorFiles, legalFiles);
-
-            navigate('/', { state: { loanSubmitted: true } });
+            alert("Your loan request and verification documents have been submitted successfully! It is now under admin review.");
+            navigate('/portfolio');
         } catch (error) {
             const detail = error.response?.data?.detail || error.message;
             alert(detail === 'Not Eligible to Borrow' ? detail : "Verification failed: " + detail);
@@ -276,7 +276,7 @@ const LoanRequest = () => {
                             </div>
 
                             <div className="form-section-header mb-8 flex items-center gap-4">
-                                <h4 className="text-lg font-black text-slate-900">Guarantor Verification</h4>
+                                <h4 className="text-lg font-black text-slate-900">Guarantor Verification {parseFloat(formData.amount) > 30000 ? <span className="text-xs text-red-500 font-bold ml-2">(Required for amount > Rs. 30,000)</span> : <span className="text-xs text-slate-400 font-normal ml-2">(Optional for amount ≤ Rs. 30,000)</span>}</h4>
                                 <div className="h-px flex-1 bg-slate-100"></div>
                             </div>
 
@@ -288,7 +288,7 @@ const LoanRequest = () => {
                                         name="guarantorName"
                                         value={formData.guarantorName}
                                         onChange={handleChange}
-                                        required
+                                        required={parseFloat(formData.amount) > 30000}
                                         className="w-full px-6 py-4 rounded-2xl border-2 border-slate-100 focus:border-primary focus:outline-none font-bold transition-all"
                                     />
                                 </div>
@@ -299,7 +299,7 @@ const LoanRequest = () => {
                                         name="guarantorPhone"
                                         value={formData.guarantorPhone}
                                         onChange={handleChange}
-                                        required
+                                        required={parseFloat(formData.amount) > 30000}
                                         className="w-full px-6 py-4 rounded-2xl border-2 border-slate-100 focus:border-primary focus:outline-none font-bold transition-all"
                                     />
                                 </div>
@@ -310,7 +310,7 @@ const LoanRequest = () => {
                                         name="guarantorRelation"
                                         value={formData.guarantorRelation}
                                         onChange={handleChange}
-                                        required
+                                        required={parseFloat(formData.amount) > 30000}
                                         className="w-full px-6 py-4 rounded-2xl border-2 border-slate-100 focus:border-primary focus:outline-none font-bold transition-all"
                                     />
                                 </div>
@@ -321,7 +321,7 @@ const LoanRequest = () => {
                                         name="guarantorCard"
                                         value={formData.guarantorCard}
                                         onChange={handleChange}
-                                        required
+                                        required={parseFloat(formData.amount) > 30000}
                                         className="w-full px-6 py-4 rounded-2xl border-2 border-slate-100 focus:border-primary focus:outline-none font-bold transition-all"
                                     />
                                 </div>

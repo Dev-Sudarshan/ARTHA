@@ -25,8 +25,8 @@ const KYC = () => {
         issueDate: '',
         docFront: null,
         docBack: null,
-        livePhoto: null,
-        livePhotoUrl: null
+        liveVideo: null,
+        liveVideoUrl: null
     });
 
     const { user, loading: authLoading, refreshUser } = useAuth();
@@ -159,13 +159,13 @@ const KYC = () => {
         setLoading(true);
         try {
             const text = "I declare that the information provided is true.";
-            if (!formData.livePhoto) {
-                alert('Please capture your photo first.');
+            if (!formData.liveVideo) {
+                alert('Please record the 2-3 second live video first.');
                 setLoading(false);
                 return;
             }
 
-            await kycService.submitSelfie(user.phone, formData.livePhoto, text);
+            await kycService.submitVideo(user.phone, formData.liveVideo, text);
 
             // Verification now runs in background - don't wait for it
             await refreshUser();

@@ -6,14 +6,17 @@ import logo from '../../assets/artha-logo.jpg';
 import './Navbar.css';
 
 const Navbar = () => {
-    const { user, logout, devSwitchRole, bankLinked } = useAuth();
+    const { user, logout, bankLinked } = useAuth();
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const navigate = useNavigate();
     const currentRole = user?.preferredRole === 'lender' ? 'lender' : 'borrower';
+    const linkedBank = bankLinked || Boolean(user?.bankAccountNumber);
     const roleActionLabel = currentRole === 'lender' ? 'Lend' : 'Borrow';
     const roleActionPath = !user
         ? '/login'
-        : !bankLinked
+        : user.kycStatus !== 'verified'
+            ? '/kyc'
+        : !linkedBank
             ? '/bank-connection-demo'
             : currentRole === 'lender'
                 ? '/marketplace'
@@ -51,29 +54,6 @@ const Navbar = () => {
                     </div>
 
                     <div className="navbar-auth">
-                        <div className="dev-role-switcher" aria-label="Temporary role switcher">
-                            <span>DEV</span>
-                            <button
-                                type="button"
-                                className={currentRole === 'borrower' ? 'active' : ''}
-                                onClick={() => {
-                                    devSwitchRole('borrower');
-                                    setIsMenuOpen(false);
-                                }}
-                            >
-                                Borrower
-                            </button>
-                            <button
-                                type="button"
-                                className={currentRole === 'lender' ? 'active' : ''}
-                                onClick={() => {
-                                    devSwitchRole('lender');
-                                    setIsMenuOpen(false);
-                                }}
-                            >
-                                Lender
-                            </button>
-                        </div>
                         {user ? (
                             <div className="user-menu">
                                 <Link to="/profile" className="user-profile" onClick={() => setIsMenuOpen(false)}>

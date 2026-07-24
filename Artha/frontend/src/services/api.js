@@ -1,7 +1,8 @@
 import axios from 'axios';
 
 // Allow overriding the backend URL via env; fall back to local dev port 8000
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_URL = import.meta.env.VITE_API_URL
+    || `${window.location.protocol}//${window.location.hostname}:8000`;
 
 const api = axios.create({
     baseURL: API_URL,

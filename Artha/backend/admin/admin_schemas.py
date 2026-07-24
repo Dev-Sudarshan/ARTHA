@@ -85,6 +85,7 @@ class KycRecordOut(BaseModel):
     doc_front_url: Optional[str] = None
     doc_back_url: Optional[str] = None
     selfie_url: Optional[str] = None
+    video_url: Optional[str] = None
     is_pep: Optional[bool] = False
     is_sanctioned: Optional[bool] = False
     aml_risk_level: Optional[str] = None
@@ -104,6 +105,7 @@ class KycDetailsOut(BaseModel):
     doc_front_url: Optional[str] = None
     doc_back_url: Optional[str] = None
     selfie_url: Optional[str] = None
+    video_url: Optional[str] = None
     kyc: dict[str, Any]
 
 

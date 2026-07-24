@@ -68,6 +68,9 @@ def generate_loan_agreement_pdf(
     Returns file path.
     """
 
+    if not os.path.isabs(output_dir):
+        base_backend = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        output_dir = os.path.join(base_backend, output_dir)
     os.makedirs(output_dir, exist_ok=True)
     file_name = f"loan_agreement_{uuid.uuid4().hex}.pdf"
     file_path = os.path.join(output_dir, file_name)

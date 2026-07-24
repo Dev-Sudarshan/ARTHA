@@ -4,56 +4,52 @@ import { RefreshCw, Camera } from 'lucide-react';
 
 const Step3Verification = ({ data, updateData, submit, prevStep, loading }) => {
     const webcamRef = useRef(null);
-    const [capturedImage, setCapturedImage] = useState(data.livePhotoUrl || null);
+    const [recordedVideo, setRecordedVideo] = useState(data.liveVideoUrl || null);
+    const [recording, setRecording] = useState(false);
 
     useEffect(() => {
         return () => {
-            if (capturedImage && capturedImage.startsWith('blob:')) {
-                URL.revokeObjectURL(capturedImage);
+            if (recordedVideo && recordedVideo.startsWith('blob:')) {
+                URL.revokeObjectURL(recordedVideo);
             }
         };
-    }, [capturedImage]);
+    }, [recordedVideo]);
 
-    const capturePhoto = () => {
-        if (!webcamRef.current) {
+    const recordVideo = () => {
+        if (!webcamRef.current?.video?.srcObject) {
             alert('Camera not ready');
             return;
         }
-
-        const imageSrc = webcamRef.current.getScreenshot();
-        if (!imageSrc) {
-            alert('Failed to capture image');
-            return;
-        }
-
-        // Convert base64 to blob
-        fetch(imageSrc)
-            .then(res => res.blob())
-            .then(blob => {
-                const file = new File([blob], "selfie.jpg", { type: "image/jpeg" });
-                setCapturedImage(imageSrc);
-                updateData('livePhoto', file);
-                updateData('livePhotoUrl', imageSrc);
-            })
-            .catch(err => {
-                console.error('Error converting image:', err);
-                alert('Failed to process captured image');
-            });
+        const chunks = [];
+        const recorder = new MediaRecorder(webcamRef.current.video.srcObject, { mimeType: 'video/webm' });
+        recorder.ondataavailable = (event) => event.data.size && chunks.push(event.data);
+        recorder.onstop = () => {
+            const blob = new Blob(chunks, { type: 'video/webm' });
+            const file = new File([blob], 'live-verification.webm', { type: 'video/webm' });
+            const url = URL.createObjectURL(blob);
+            setRecordedVideo(url);
+            updateData('liveVideo', file);
+            updateData('liveVideoUrl', url);
+            setRecording(false);
+        };
+        recorder.start();
+        setRecording(true);
+        window.setTimeout(() => recorder.state === 'recording' && recorder.stop(), 3000);
     };
 
     const retake = () => {
-        if (capturedImage && capturedImage.startsWith('blob:')) {
-            URL.revokeObjectURL(capturedImage);
+        if (recordedVideo && recordedVideo.startsWith('blob:')) {
+            URL.revokeObjectURL(recordedVideo);
         }
-        setCapturedImage(null);
-        updateData('livePhoto', null);
-        updateData('livePhotoUrl', null);
+        setRecordedVideo(null);
+        updateData('liveVideo', null);
+        updateData('liveVideoUrl', null);
     };
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        if (!capturedImage) {
-            alert("Please capture your photo first");
+        if (!recordedVideo) {
+            alert("Please record the live video first");
             return;
         }
         submit();
@@ -61,14 +57,14 @@ const Step3Verification = ({ data, updateData, submit, prevStep, loading }) => {
 
     return (
         <div className="text-center">
-            <h3 className="form-section-title">Live Verification</h3>
-            <p className="mb-2 text-muted">Capture a clear photo of your face to verify your identity.</p>
-            <p className="mb-4 text-muted">Tips: keep your face centered, avoid backlight, and stay within arm's length.</p>
+            <h3 className="form-section-title">Live Video</h3>
+            <p className="mb-2 text-muted">Record a clear 2-3 second live video for admin review.</p>
+            <p className="mb-4 text-muted">Keep your face centered and stay within arm's length.</p>
 
             <div className="camera-section mb-4">
-                {capturedImage ? (
+                {recordedVideo ? (
                     <div>
-                        <img src={capturedImage} alt="Captured selfie" className="captured-image" />
+                        <video src={recordedVideo} controls className="captured-image" />
                         <div className="mt-4">
                             <button type="button" onClick={retake} className="btn btn-outline">
                                 <RefreshCw size={18} className="mr-2" style={{ marginRight: '0.5rem' }} /> Retake
@@ -86,9 +82,9 @@ const Step3Verification = ({ data, updateData, submit, prevStep, loading }) => {
                             />
                         </div>
                         <div className="mt-4">
-                            <button type="button" onClick={capturePhoto} className="btn btn-primary">
+                            <button type="button" onClick={recordVideo} className="btn btn-primary" disabled={recording}>
                                 <Camera size={18} className="mr-2" style={{ marginRight: '0.5rem' }} />
-                                Capture Photo
+                                {recording ? 'Recording...' : 'Record 3-Second Video'}
                             </button>
                         </div>
                     </div>
@@ -97,7 +93,7 @@ const Step3Verification = ({ data, updateData, submit, prevStep, loading }) => {
 
             <div className="flex justify-between mt-8">
                 <button type="button" onClick={prevStep} className="btn btn-outline" disabled={loading}>Back</button>
-                <button type="button" onClick={handleSubmit} className="btn btn-primary btn-lg" disabled={!capturedImage || loading}>
+                    <button type="button" onClick={handleSubmit} className="btn btn-primary btn-lg" disabled={!recordedVideo || recording || loading}>
                     {loading ? 'Submitting...' : 'Submit Verification'}
                 </button>
             </div>

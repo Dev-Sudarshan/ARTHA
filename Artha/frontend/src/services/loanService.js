@@ -38,7 +38,7 @@ const loanService = {
             tenure_months: parseInt(loanData.tenure),
             purpose: loanData.purpose,
             emi_amount: 0,
-            guarantor: {
+            guarantor: (guarantorData && guarantorData.name && guarantorData.name.trim()) ? {
                 full_name: guarantorData.name,
                 relation: guarantorData.relation,
                 card_images: {
@@ -46,7 +46,7 @@ const loanService = {
                     back_image_ref: backUrl || ""
                 },
                 citizenship_no: guarantorData.citizenshipNo
-            },
+            } : null,
             agreement_pdf_signed: signedUrl,
             video_verification_ref: videoUrl,
             agreed_to_rules: true,
@@ -60,12 +60,14 @@ const loanService = {
     },
 
     // 3. Fund a Loan (Lender)
-    fundLoan: async (loanId, amount) => {
+    fundLoan: async (loanId, amount, senderAccount) => {
         const payload = {
             loan_id: loanId,
             amount: parseFloat(amount),
             transaction_id: `TXN-${Math.floor(Date.now())}`,
-            sender_account: "WALLET-MOCK",
+            // The transaction must originate from the account linked to the
+            // authenticated lender.  The payment screen supplies that value.
+            sender_account: senderAccount,
             receiver_account: "ESCROW-POOL",
             timestamp: Math.floor(Date.now() / 1000),
             success: true
@@ -75,13 +77,16 @@ const loanService = {
     },
 
     // 4. Repay Loan
-    repayLoan: async (loanId, amount) => {
+    repayLoan: async (loanId, amount, sourceAccount) => {
         const payload = {
             loan_id: loanId,
             amount: parseFloat(amount),
-            paid_by: "OVERRIDE_BY_BACKEND",
+            // The API sets paid_by from the authenticated session; this is
+            // retained only to satisfy the request schema.
+            paid_by: "",
             repayment_type: "PARTIAL",
             repayment_id: "GENERATE_ME",
+            source_account: sourceAccount,
             timestamp: Math.floor(Date.now() / 1000)
         };
         const response = await api.post('/repayments/', payload);

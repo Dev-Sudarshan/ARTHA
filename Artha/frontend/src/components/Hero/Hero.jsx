@@ -6,6 +6,7 @@ import './Hero.css';
 const Hero = () => {
     const { user, bankLinked } = useAuth();
     const currentRole = user?.preferredRole === 'lender' ? 'lender' : 'borrower';
+    const linkedBank = bankLinked || Boolean(user?.bankAccountNumber);
     const roleActionPath = currentRole === 'lender' ? '/marketplace' : '/request-loan';
     const roleActionLabel = currentRole === 'lender' ? 'Start Lending' : 'Start Borrowing';
 
@@ -33,7 +34,7 @@ const Hero = () => {
                             </>
                         ) : (
                             <>
-                                {user.kycStatus === 'verified' && !bankLinked ? (
+                                {user.kycStatus === 'verified' && !linkedBank ? (
                                     <Link to="/bank-connection-demo" className="btn btn-primary">
                                         <Building2 size={20} /> Link Bank Account
                                     </Link>
@@ -55,7 +56,7 @@ const Hero = () => {
                         )}
                     </div>
 
-                    {user?.kycStatus === 'verified' && !bankLinked && (
+                    {user?.kycStatus === 'verified' && !linkedBank && (
                         <div className="hero-bank-notice">
                             <Building2 size={18} />
                             <span>Link a demo bank account to unlock {currentRole === 'lender' ? 'lending' : 'borrowing'} flows.</span>

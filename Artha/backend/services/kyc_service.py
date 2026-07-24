@@ -44,7 +44,7 @@ def _resolve_upload_ref(ref: str) -> str:
 
 
 # ---- CREDIT SCORE CONSTANT ----
-INITIAL_CREDIT_SCORE = 600
+INITIAL_CREDIT_SCORE = 0
 
 # ---- KYC STAGES ----
 STAGE_BASIC = "BASIC_INFO_SUBMITTED"
@@ -110,8 +110,6 @@ def submit_id_documents(payload: KYCPageTwoSchema):
     }
 
 
-from models.image_verification_model import verify_face_identity
-from models.face_pipeline import check_liveness_single_image, check_liveness_video, verify_faces_from_video
 import threading
 
 # =========================
@@ -147,9 +145,10 @@ def submit_declaration_video(payload: KYCPageThreeSchema):
     kyc_data["status"] = "PROCESSING"
     put_item("kyc", user_id, kyc_data)
 
-    # ---- Initialize credit score ONCE ----
+    # ---- Initialize borrower credit score ONCE ----
+    user_data = get_item("users", user_id) or {}
     existing_score = get_item("credit_scores", user_id)
-    if existing_score is None:
+    if user_data.get("preferred_role", "borrower") == "borrower" and existing_score is None:
         put_item("credit_scores", user_id, INITIAL_CREDIT_SCORE)
 
     # ---- LAUNCH BACKGROUND VERIFICATION ----
@@ -343,62 +342,11 @@ def _run_verification_background(user_id: str):
         print(f"[KYC BG] STEP 1.6 (CIB) took {_time.time() - _t16:.1f}s")
 
         # ============================================================
-        # STEP 2: FACE MATCHING (selfie vs ID card)
-        # ============================================================
-        _t2 = _time.time()
-        print("[KYC BG] === STEP 2: Running face matching ===")
-
-        try:
-            if live_video_ref:
-                face_result = verify_faces_from_video(
-                    id_image_path=front_image_ref,
-                    video_path=live_video_ref,
-                )
-            else:
-                face_result = verify_face_identity(
-                    image_path=live_photo_ref,
-                    citizenship_image_path=front_image_ref
-                )
-            print(f"[KYC BG] Face result: {face_result}")
-        except Exception as face_err:
-            print(f"[KYC BG] Face AI failed: {face_err}")
-            face_result = {
-                "face_match": False,
-                "distance": 1.0,
-                "final_status": "REJECTED",
-                "reason": f"Face AI error: {str(face_err)}"
-            }
-
-        print(f"[KYC BG] STEP 2 (Face) took {_time.time() - _t2:.1f}s")
-
-        # ============================================================
-        # STEP 3: LIVENESS CHECK
-        # ============================================================
-        _t3 = _time.time()
-        print("[KYC BG] === STEP 3: Running liveness detection ===")
-
-        try:
-            if live_video_ref:
-                liveness_result = check_liveness_video(live_video_ref)
-            else:
-                liveness_result = check_liveness_single_image(live_photo_ref)
-            print(f"[KYC BG] Liveness result: {liveness_result}")
-        except Exception as live_err:
-            print(f"[KYC BG] Liveness check failed: {live_err}")
-            liveness_result = {
-                "liveness_passed": False,
-                "reason": f"Liveness error: {str(live_err)}",
-            }
-
-        print(f"[KYC BG] STEP 3 (Liveness) took {_time.time() - _t3:.1f}s")
-
-        # ============================================================
-        # FINAL: MERGE ALL RESULTS
+        # FINAL: OCR and regulatory results are sent to admin for review.
         # ============================================================
         print("[KYC BG] === Merging all verification results ===")
         ocr_ok = ai_results.get("gov_id_verified", False)
-        face_ok = bool(face_result.get("face_match"))
-        live_ok = bool(liveness_result.get("liveness_passed"))
+        video_submitted = bool(live_video_ref)
 
         # PEP/Sanctions flags
         is_pep = sanctions_result.get("is_pep", False)
@@ -415,15 +363,13 @@ def _run_verification_background(user_id: str):
         elif is_pep:
             ai_suggested_status = "NEEDS_REVIEW"
         else:
-            ai_suggested_status = "APPROVED" if (ocr_ok and face_ok and live_ok) else "REJECTED"
+            ai_suggested_status = "NEEDS_REVIEW"
 
         reasons = []
         if not ocr_ok:
             reasons.append("OCR verification failed")
-        if not face_ok:
-            reasons.append("Face mismatch")
-        if not live_ok:
-            reasons.append("Liveness failed")
+        if not video_submitted:
+            reasons.append("Live video was not submitted")
         if is_sanctioned:
             reasons.append("SANCTIONED/CFT: Person found on international sanctions or terrorism financing list")
         if is_pep:
@@ -433,13 +379,9 @@ def _run_verification_background(user_id: str):
 
         final_kyc_result = {
             **ai_results,
-            "face_match_score": face_result.get("distance", 0.0),
-            "face_similarity": face_result.get("similarity"),
-            "speech_verified": True,
-            "liveness_passed": liveness_result.get("liveness_passed"),
-            "liveness_reason": liveness_result.get("reason"),
+            "video_submitted": video_submitted,
             "ai_suggested_status": ai_suggested_status,
-            "reason": "; ".join(reasons) if reasons else face_result.get("reason"),
+            "reason": "; ".join(reasons) or "OCR and live video submitted for admin review.",
             # PEP / AML / CFT screening results
             "pep_screened": sanctions_result.get("screened", False),
             "is_pep": is_pep,
@@ -456,7 +398,7 @@ def _run_verification_background(user_id: str):
             "cib_reason": cib_result.get("reason"),
         }
 
-        print(f"[KYC BG] Final result: OCR={ocr_ok}, Face={face_ok}, Liveness={live_ok}, PEP={is_pep}, Sanctioned={is_sanctioned}, CIB Eligible={cib_eligible}")
+        print(f"[KYC BG] Final result: OCR={ocr_ok}, Video={video_submitted}, PEP={is_pep}, Sanctioned={is_sanctioned}, CIB Eligible={cib_eligible}")
         print(f"[KYC BG] AML Risk Level: {aml_risk_level}")
         print(f"[KYC BG] AI suggested status: {ai_suggested_status}")
 

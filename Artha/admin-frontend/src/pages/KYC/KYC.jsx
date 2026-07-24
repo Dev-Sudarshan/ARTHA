@@ -436,10 +436,10 @@ const KYC = () => {
                       <div className="kyc-image-empty">No file</div>
                     )}
                   </div>
-                  <div className="kyc-image-card">
-                    <div className="kyc-image-title">Live Photo</div>
-                    {selectedDetails.selfie_url ? (
-                      <img alt="Selfie" src={normalizeUrl(selectedDetails.selfie_url)} />
+                  <div className="kyc-image-card wide">
+                    <div className="kyc-image-title">Live Verification Video</div>
+                    {selectedDetails.video_url ? (
+                      <video controls src={normalizeUrl(selectedDetails.video_url)} style={{ width: '100%' }} />
                     ) : (
                       <div className="kyc-image-empty">No file</div>
                     )}

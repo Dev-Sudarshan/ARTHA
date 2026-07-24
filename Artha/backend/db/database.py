@@ -1,5 +1,6 @@
 import json
 import os
+import sqlite3
 from typing import Any, Dict, List, Optional
 
 import psycopg2
@@ -14,6 +15,8 @@ DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql://aartha_user:uCdz5w5vQSXADl6ocUGGCuI2iNu3Bybl@dpg-d631i1onputs73a007ng-a.virginia-postgres.render.com/aartha",
 )
+LOCAL_DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "artha.db"))
+_sqlite_fallback = DATABASE_URL.startswith("sqlite://")
 
 # SQLAlchemy setup for admin panel
 SQLALCHEMY_DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://")
@@ -45,6 +48,67 @@ def _normalize_db_url(url: str) -> str:
 # ---- CONNECTION POOL (reuses warm TCP+SSL connections) ----
 _connection_pool = None
 
+
+class _SQLiteCursor:
+    """Small compatibility layer for the existing psycopg-style repository helpers."""
+
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def execute(self, query, params=None):
+        query = query.replace("%s", "?")
+        if params:
+            params = tuple(
+                json.dumps(value.adapted)
+                if hasattr(value, "adapted")
+                else value
+                for value in params
+            )
+        return self._cursor.execute(query, params or ())
+
+    def fetchone(self):
+        return self._cursor.fetchone()
+
+    def fetchall(self):
+        return self._cursor.fetchall()
+
+
+class _SQLiteConnection:
+    def __init__(self):
+        self._connection = sqlite3.connect(LOCAL_DB_PATH)
+        self._connection.row_factory = sqlite3.Row
+
+    def cursor(self):
+        return _SQLiteCursor(self._connection.cursor())
+
+    def commit(self):
+        self._connection.commit()
+
+    def close(self):
+        self._connection.close()
+
+
+def _init_sqlite():
+    conn = _SQLiteConnection()
+    cursor = conn.cursor()
+    schemas = {
+        "users": "phone TEXT PRIMARY KEY, json_data TEXT",
+        "sessions": "token TEXT PRIMARY KEY, json_data TEXT",
+        "otps": "phone TEXT PRIMARY KEY, json_data TEXT",
+        "kyc": "user_id TEXT PRIMARY KEY, json_data TEXT",
+        "credit_scores": "user_id TEXT PRIMARY KEY, score INTEGER",
+        "loans": "loan_id TEXT PRIMARY KEY, json_data TEXT",
+        "transactions": "loan_id TEXT PRIMARY KEY, json_data TEXT",
+        "financial_data": "user_id TEXT PRIMARY KEY, json_data TEXT",
+        "repayments": "repayment_id TEXT PRIMARY KEY, loan_id TEXT, json_data TEXT",
+        "agreement_executions": "loan_id TEXT PRIMARY KEY, json_data TEXT",
+        "loan_acceptances": "loan_id TEXT PRIMARY KEY, json_data TEXT",
+    }
+    for table, schema in schemas.items():
+        cursor.execute(f"CREATE TABLE IF NOT EXISTS {table} ({schema})")
+    conn.commit()
+    conn.close()
+
 def _get_pool():
     global _connection_pool
     if _connection_pool is None:
@@ -60,7 +124,9 @@ def _get_pool():
 
 def get_connection():
     """Get a connection from the pool (much faster than opening a new one each time)."""
-    global _connection_pool
+    global _connection_pool, _sqlite_fallback
+    if _sqlite_fallback:
+        return _SQLiteConnection()
     try:
         conn = _get_pool().getconn()
     except Exception:
@@ -71,7 +137,12 @@ def get_connection():
             except Exception:
                 pass
             _connection_pool = None
-        conn = _get_pool().getconn()
+        try:
+            conn = _get_pool().getconn()
+        except Exception:
+            _sqlite_fallback = True
+            _init_sqlite()
+            return _SQLiteConnection()
 
     # Test that the connection is still alive (Render free DBs drop idle connections)
     try:
@@ -88,17 +159,29 @@ def get_connection():
 
 def release_connection(conn):
     """Return a connection back to the pool."""
+    if isinstance(conn, _SQLiteConnection):
+        conn.close()
+        return
     try:
         _get_pool().putconn(conn)
     except Exception:
         pass
 
 def init_db():
+    if _sqlite_fallback:
+        _init_sqlite()
+        print(f"[DB] Using local SQLite demo database: {LOCAL_DB_PATH}")
+        return
     try:
         conn = get_connection()
     except Exception as e:
         print(f"[DB] WARNING: Could not connect to database during init: {e}")
         print("[DB] Server will start but DB operations may fail until connection is restored.")
+        return
+    if isinstance(conn, _SQLiteConnection):
+        release_connection(conn)
+        _init_sqlite()
+        print(f"[DB] Using local SQLite demo database: {LOCAL_DB_PATH}")
         return
     cursor = conn.cursor()
     

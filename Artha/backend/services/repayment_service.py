@@ -7,7 +7,7 @@ from db.database import get_item, put_item, add_repayment, get_repayments
 
 
 # ---- CREDIT SCORE RULES ----
-INITIAL_SCORE = 600
+INITIAL_SCORE = 0
 REWARD_ON_FULL_REPAY = 20
 MAX_SCORE = 850
 
@@ -16,7 +16,9 @@ def _increase_credit_score(user_id: str):
     """
     Increase credit score after successful full repayment
     """
-    current = get_item("credit_scores", user_id) or INITIAL_SCORE
+    current = get_item("credit_scores", user_id)
+    if current is None:
+        current = 800
     new_score = min(current + REWARD_ON_FULL_REPAY, MAX_SCORE)
     put_item("credit_scores", user_id, new_score)
 
@@ -42,6 +44,16 @@ def process_repayment(payload: RepaymentSchema):
     borrower_id = loan.get("user_id")
     if borrower_id != payload.paid_by:
         raise Exception("Only borrower can repay this loan")
+
+    borrower_kyc = get_item("kyc", borrower_id) or {}
+    borrower_bank = borrower_kyc.get("bank_details", {})
+    if borrower_kyc.get("status") not in {"APPROVED", "VERIFIED"}:
+        raise Exception("Verified KYC is required before repayment")
+    linked_account = borrower_bank.get("account_number")
+    if not (borrower_bank.get("linked") or linked_account):
+        raise Exception("Linked bank account is required before repayment")
+    if payload.source_account != linked_account:
+        raise Exception("Installments must be paid from your linked bank account")
 
     # 4️⃣ Track repayment amount
     # Use helper to get list, sum them

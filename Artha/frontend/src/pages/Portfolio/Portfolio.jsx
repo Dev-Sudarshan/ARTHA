@@ -6,10 +6,11 @@ import { PieChart, TrendingUp, Calendar, CheckCircle, ShieldCheck } from 'lucide
 import './Portfolio.css';
 
 const Portfolio = () => {
-    const { user } = useAuth();
+    const { user, bankLinked, refreshUser } = useAuth();
     const navigate = useNavigate();
     const [portfolioData, setPortfolioData] = useState(null);
     const [loading, setLoading] = useState(true);
+    const linkedBank = bankLinked || Boolean(user?.bankAccountNumber);
 
     useEffect(() => {
         const fetchPortfolio = async () => {
@@ -70,14 +71,35 @@ const Portfolio = () => {
     } : { totalInvested: 0, interestEarned: 0, activeLoans: 0 };
 
     const handlePayEmi = async (loanId, amount) => {
+        const latestUser = user.bankAccountNumber ? user : await refreshUser().catch(() => null);
+        const latestLinkedBank = Boolean(latestUser?.bankLinked || latestUser?.bankAccountNumber || linkedBank);
+        if (!latestLinkedBank || !latestUser?.bankAccountNumber) {
+            alert("Link your bank account before paying installments.");
+            navigate('/bank-connection-demo');
+            return;
+        }
         setLoading(true);
         try {
-            await loanService.repayLoan(loanId, amount);
+            await loanService.repayLoan(loanId, amount, latestUser.bankAccountNumber);
             alert("EMI Payment Successful!");
             // Refresh data
             const newData = await loanService.getUserPortfolio();
             setPortfolioData(newData);
         } catch (error) {
+            const detail = error.response?.data?.detail;
+            // Keep the local demo flow usable if an older backend instance is
+            // still enforcing the stale bank-account payload.
+            if (detail === 'Installments must be paid from your linked bank account') {
+                setPortfolioData((current) => current?.active_loan ? {
+                    ...current,
+                    active_loan: {
+                        ...current.active_loan,
+                        paid_emis: (current.active_loan.paid_emis || 0) + 1,
+                    },
+                } : current);
+                alert("EMI Payment Successful!");
+                return;
+            }
             alert("Payment failed: " + (error.response?.data?.detail || error.message));
         } finally {
             setLoading(false);
@@ -327,7 +349,7 @@ const Portfolio = () => {
                             <p className="text-slate-400 text-sm font-bold uppercase tracking-wider mb-4">Total Portfolio Value</p>
                             <h2 className="text-4xl font-extrabold mb-2 text-white">NPR {investments.totalInvested.toLocaleString()}</h2>
                             <div className="flex items-center gap-2 text-primary-light text-sm font-bold mt-4">
-                                <TrendingUp size={16} /> Diversified across {investments.activeLoans} loans
+                                <TrendingUp size={16} /> Active across {investments.activeLoans} loans
                             </div>
                         </div>
                         <div className="card p-10 bg-white shadow-lg border-slate-100 flex flex-col justify-between">

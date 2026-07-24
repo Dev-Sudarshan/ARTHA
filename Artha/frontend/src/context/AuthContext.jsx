@@ -18,51 +18,18 @@ const AuthContext = createContext({
     logout: () => {},
     updateKycStatus: () => {},
     setUserRole: () => {},
-    devSwitchRole: () => {},
     markBankLinked: () => {},
     refreshUser: async () => null,
 });
 
 export const useAuth = () => useContext(AuthContext);
 
-const mapUser = (backendUser, token) => {
-    const firstName = backendUser.firstName || backendUser.first_name || '';
-    const middleName = backendUser.middleName || backendUser.middle_name || '';
-    const lastName = backendUser.lastName || backendUser.last_name || '';
-
-    const rawKyc = String(backendUser.kycStatus || '').toLowerCase();
-    const kycStatus = backendUser.kycStatus
-        ? rawKyc === 'approved'
-            ? 'verified'
-            : rawKyc
-        : backendUser.kycVerified
-            ? 'verified'
-            : 'incomplete';
-
-    return {
-        ...backendUser,
-        id: backendUser.phone,
-        firstName,
-        middleName,
-        lastName,
-        name: `${firstName} ${lastName}`.trim(),
-        email: backendUser.email || '',
-        avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(firstName)}+${encodeURIComponent(lastName)}&background=0A2540&color=fff`,
-        kycStatus,
-        activeRole: backendUser.activeRole || 'none',
-        preferredRole: backendUser.preferredRole || backendUser.preferred_role || backendUser.accountType || 'borrower',
-        borrowingLimit: backendUser.borrowingLimit || 50000,
-        creditScore: backendUser.creditScore || null,
-        totalLended: backendUser.totalLended || 0,
-        totalBorrowed: backendUser.totalBorrowed || 0,
-        token,
-    };
-};
+const hasLinkedBank = (profile) => Boolean(profile?.bankLinked || profile?.bankAccountNumber);
 
 export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [bankLinked, setBankLinked] = useState(() => localStorage.getItem('artha_bank_linked') === 'true');
+    const [bankLinked, setBankLinked] = useState(false);
 
     useEffect(() => {
         // Load user from local storage INSTANTLY, then refresh from backend in background
@@ -74,6 +41,7 @@ export const AuthProvider = ({ children }) => {
                     const parsed = JSON.parse(storedUser);
                     console.log('[AuthContext] Parsed user:', parsed.firstName, 'token:', parsed.token ? 'exists' : 'missing');
                     setUser(parsed);
+                    setBankLinked(hasLinkedBank(parsed));
                     setLoading(false); // Show UI immediately with cached data
 
                     // Refresh from backend in background (non-blocking)
@@ -84,6 +52,7 @@ export const AuthProvider = ({ children }) => {
                                 console.log('[AuthContext] Refresh success:', me.firstName);
                                 const mapped = mapUser(me, parsed.token);
                                 setUser(mapped);
+                                setBankLinked(hasLinkedBank(mapped));
                                 localStorage.setItem('artha_user', JSON.stringify(mapped));
                             })
                             .catch(e => {
@@ -125,6 +94,11 @@ export const AuthProvider = ({ children }) => {
                 ? 'verified'
                 : 'incomplete';
 
+        const bankAccountNumber = backendUser.bankAccountNumber || null;
+        const mappedBankLinked = Boolean(backendUser.bankLinked || bankAccountNumber);
+        const preferredRole = backendUser.preferredRole || backendUser.preferred_role || 'borrower';
+        const isBorrower = preferredRole !== 'lender';
+
         return {
             ...backendUser,
             id: backendUser.phone, // Use phone as ID for now
@@ -136,9 +110,15 @@ export const AuthProvider = ({ children }) => {
             avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(firstName)}+${encodeURIComponent(lastName)}&background=0A2540&color=fff`,
             kycStatus,
             activeRole: backendUser.activeRole || 'none',
-            borrowingLimit: backendUser.borrowingLimit || 50000,
-            creditScore: backendUser.creditScore || null,
+            borrowingLimit: backendUser.borrowingLimit ?? 0,
+            bankLinked: mappedBankLinked,
+            creditScore: isBorrower ? backendUser.creditScore ?? 0 : null,
             borrowerClass: backendUser.borrowerClass || null,
+            underwriting: backendUser.underwriting || null,
+            nchlStatementMetrics: backendUser.nchlStatementMetrics || null,
+            preferredRole,
+            bankAccountNumber,
+            bankName: backendUser.bankName || null,
             requestLimitCap: backendUser.requestLimitCap ?? backendUser.borrowingLimit ?? 0,
             interestRateFloor: backendUser.interestRateFloor || null,
             formPermissions: backendUser.formPermissions || null,
@@ -153,6 +133,7 @@ export const AuthProvider = ({ children }) => {
         const me = await authService.me(user.token);
         const mapped = mapUser(me, user.token);
         setUser(mapped);
+        setBankLinked(hasLinkedBank(mapped));
         localStorage.setItem('artha_user', JSON.stringify(mapped));
         return mapped;
     };
@@ -163,6 +144,7 @@ export const AuthProvider = ({ children }) => {
             const mappedUser = mapUser(data.user, data.token);
             setCachedToken(data.token);
             setUser(mappedUser);
+            setBankLinked(hasLinkedBank(mappedUser));
             localStorage.setItem('artha_user', JSON.stringify(mappedUser));
 
             // Refresh live data in background (non-blocking)
@@ -170,6 +152,7 @@ export const AuthProvider = ({ children }) => {
                 .then(me => {
                     const mappedMe = mapUser(me, data.token);
                     setUser(mappedMe);
+                    setBankLinked(hasLinkedBank(mappedMe));
                     localStorage.setItem('artha_user', JSON.stringify(mappedMe));
                 })
                 .catch(() => {});
@@ -193,6 +176,7 @@ export const AuthProvider = ({ children }) => {
         const mapped = mapUser(me, data.token);
         setCachedToken(data.token);
         setUser(mapped);
+        setBankLinked(hasLinkedBank(mapped));
         localStorage.setItem('artha_user', JSON.stringify(mapped));
         return mapped;
     };
@@ -204,7 +188,9 @@ export const AuthProvider = ({ children }) => {
         } catch { /* ignore */ }
         setCachedToken(null);
         setUser(null);
+        setBankLinked(false);
         localStorage.removeItem('artha_user');
+        localStorage.removeItem('artha_bank_linked');
     };
 
     // Helper to update KYC status locally
@@ -224,40 +210,19 @@ export const AuthProvider = ({ children }) => {
         }
     }
 
-    // TEMP DEV: local-only role switcher for testing borrower/lender UI.
-    const devSwitchRole = (role) => {
-        const nextRole = role === 'lender' ? 'lender' : 'borrower';
-        const baseUser = user || {
-            id: 'dev-user',
-            firstName: 'Demo',
-            middleName: '',
-            lastName: 'Tester',
-            name: 'Demo Tester',
-            phone: '9800000000',
-            email: '',
-            dob: '2000-01-01',
-            avatar: 'https://ui-avatars.com/api/?name=Demo+Tester&background=0A2540&color=fff',
-            token: 'dev-local-token',
-            borrowingLimit: 100000,
-            creditScore: 742,
-            totalLended: 0,
-            totalBorrowed: 0,
-        };
-        const updatedUser = {
-            ...baseUser,
-            activeRole: 'none',
-            preferredRole: nextRole,
-            kycStatus: 'verified',
-            kycVerified: true,
-        };
-        setCachedToken(updatedUser.token);
-        setUser(updatedUser);
-        localStorage.setItem('artha_user', JSON.stringify(updatedUser));
-    }
-
-    const markBankLinked = () => {
+    const markBankLinked = (bankName = null, accountNumber = null) => {
         setBankLinked(true);
         localStorage.setItem('artha_bank_linked', 'true');
+        if (user) {
+            const updatedUser = {
+                ...user,
+                bankLinked: true,
+                bankName: bankName || user.bankName,
+                bankAccountNumber: accountNumber || user.bankAccountNumber,
+            };
+            setUser(updatedUser);
+            localStorage.setItem('artha_user', JSON.stringify(updatedUser));
+        }
     }
 
     const value = {
@@ -270,7 +235,6 @@ export const AuthProvider = ({ children }) => {
         logout,
         updateKycStatus,
         setUserRole,
-        devSwitchRole,
         markBankLinked,
         refreshUser,
     };

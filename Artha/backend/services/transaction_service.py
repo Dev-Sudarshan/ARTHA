@@ -5,6 +5,7 @@ from db.database import get_item, put_item, get_all_items
 # ---- STORES REPLACED BY DB ----
 
 PLATFORM_FEE_PERCENT = 3.0
+LENDER_MAX_SHARE_PERCENT = 10
 
 
 def process_fund_transfer(payload: TransactionReceiptSchema, lender_id: str):
@@ -26,10 +27,34 @@ def process_fund_transfer(payload: TransactionReceiptSchema, lender_id: str):
         raise Exception("Cannot lend to your own loan")
 
     # 2️⃣ Borrower/Lender exclusivity check
+    lender_kyc = get_item("kyc", lender_id) or {}
+    lender_bank = lender_kyc.get("bank_details", {})
+    if lender_kyc.get("status") not in {"APPROVED", "VERIFIED"}:
+        raise Exception("Verified KYC is required before lending")
+    linked_account = lender_bank.get("account_number")
+    if not (lender_bank.get("linked") or linked_account):
+        raise Exception("Linked bank account is required before lending")
+    if payload.sender_account != linked_account:
+        raise Exception("Payment must be made from your linked bank account")
+    lender_user = get_item("users", lender_id) or {}
+    if lender_user.get("preferred_role", "borrower") != "lender":
+        raise Exception("Only lender accounts can fund loans")
+
+    lender_max_amount = max(1, int((loan.get("net_amount_received") or loan["amount"]) * LENDER_MAX_SHARE_PERCENT / 100))
+    if payload.amount > lender_max_amount:
+        raise Exception(f"Lenders can fund only up to 10% of this loan: NPR {lender_max_amount:,}")
+
+    # 3️⃣ Borrower/Lender exclusivity check
     all_loans = get_all_items("loans")
+    total_lended_so_far = 0
     for _, scan_loan in all_loans.items():
         if scan_loan.get("user_id") == lender_id and scan_loan.get("status") in ["LISTED", "ACTIVE", "AWAITING_SIGNATURE"]:
             raise Exception("Borrowers cannot lend money")
+        if scan_loan.get("lender_id") == lender_id and scan_loan.get("status") != "REPAID":
+            total_lended_so_far += scan_loan.get("funded_amount") or scan_loan["amount"]
+
+    if total_lended_so_far + payload.amount > 500000:
+        raise Exception("Lending limit (500,000) exceeded")
 
     # 3️⃣ Handle Status (Auto-Accept if LISTED)
     current_status = loan.get("status")
@@ -42,6 +67,7 @@ def process_fund_transfer(payload: TransactionReceiptSchema, lender_id: str):
         # Transition to ACTIVE
         loan["status"] = "ACTIVE"
         loan["lender_id"] = lender_id
+        loan["funded_amount"] = payload.amount
         # Use payload timestamp for consistency
         import datetime
         # If payload.timestamp is int (unix), convert? Schema says int.
@@ -74,6 +100,17 @@ def process_fund_transfer(payload: TransactionReceiptSchema, lender_id: str):
             "loan_outstanding": 0.0,
             "account_age_months": 0,
         }
+
+    # Bank linking creates a financial-data record with statement metadata.
+    # Complete that partial record before updating transaction counters.
+    stats.setdefault("monthly_income", 0)
+    stats.setdefault("monthly_expense", 0)
+    stats.setdefault("total_transactions", 0)
+    stats.setdefault("failed_transactions", 0)
+    stats.setdefault("avg_transaction_amount", 0.0)
+    stats.setdefault("missed_payments", 0)
+    stats.setdefault("loan_outstanding", 0.0)
+    stats.setdefault("account_age_months", 0)
 
     # 6️⃣ Update transaction counters
     stats["total_transactions"] += 1

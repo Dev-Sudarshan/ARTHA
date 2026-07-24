@@ -9,5 +9,4 @@
 #   - pipeline: End-to-end citizenship card extraction
 #   - video_verification: Face matching from video
 #   - citizenship_ocr_model: Bridge for KYC service OCR
-#   - image_verification_model: Bridge for face identity match
 #   - face_pipeline: Bridge for liveness & video face checks
